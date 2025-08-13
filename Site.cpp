@@ -14,15 +14,8 @@ Site::Site(int site_id, double initial_x, double initial_y, double initial_z, in
 // This defines how a Site object changes its position.
 // 'direction_axis': Typically 0 for X, 1 for Y, 2 for Z.
 // 'step_size': The magnitude of the displacement along the chosen axis.
-void Site::move(int direction_axis, double step_size) {
-    if (direction_axis == 0) { // Move along the X-axis
-        x += step_size;
-    } else if (direction_axis == 1) { // Move along the Y-axis
-        y += step_size;
-    } else if (direction_axis == 2) { // Move along the Z-axis
-        z += step_size;
-    }
-    // Note: Applying Periodic Boundary Conditions (PBC) is often done
-    // by the KMC_Simulator after the move, as it manages the global domain.
-    // This keeps the Site class focused on its own properties and direct movement.
+void Site::move(std::vector<double> direction, double step_size) {
+    x += step_size*direction[0];
+    y += step_size*direction[1];
+    z += step_size*direction[2];
 }

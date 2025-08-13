@@ -1,8 +1,8 @@
 #include "StressPoint.h"
 
 // 构造函数实现，更新以包含 id
-StressPoint::StressPoint(int sid, double sx, double sy, double sz, double s_trace)
-    : id(sid), x(sx), y(sy), z(sz), trace(s_trace) {
+StressPoint::StressPoint(int sid, double sx, double sy, double sz, double s_trace, std::vector<double> tr_grad)
+    : id(sid), x(sx), y(sy), z(sz), trace(s_trace), tr_grad(tr_grad) {
     // 构造函数体为空，因为成员变量已经在初始化列表中初始化
 }
 

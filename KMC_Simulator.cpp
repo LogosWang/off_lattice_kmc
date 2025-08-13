@@ -153,12 +153,27 @@ bool KMC_Simulator::read_stress_field_from_csv(const std::string& filename) {
             }
         }
 
-        // 检查是否有足够的列（X, Y, Z, Trace）
-        if (values.size() >= 4) { // 至少需要4列
-            // 如果 CSV 中没有 ID，我们自己生成一个
-            stress_field_data.emplace_back(current_id++, values[0], values[1], values[2], values[3]);
+        // --- 修改点：检查是否有足够的列（X, Y, Z, Trace, GradX, GradY, GradZ） ---
+        // 现在至少需要7列
+        if (values.size() >= 7) { 
+            // 提取前四列作为基础数据
+            double x = values[0];
+            double y = values[1];
+            double z = values[2];
+            double trace = values[3];
+
+            // --- 修改点：提取后三列作为梯度向量 ---
+            // 将后三列数据放入一个 std::vector<double>
+            std::vector<double> gradient_vector;
+            gradient_vector.push_back(values[4]); // GradX
+            gradient_vector.push_back(values[5]); // GradY
+            gradient_vector.push_back(values[6]); // GradZ
+
+            // --- 修改点：调用 StressPoint 的新构造函数 ---
+            // 传入 gradient_vector
+            stress_field_data.emplace_back(current_id++, x, y, z, trace, gradient_vector);
         } else {
-            std::cerr << "警告：应力场文件行格式不正确，跳过此行： " << line << std::endl;
+            std::cerr << "警告：应力场文件行格式不正确（预期至少7列），跳过此行： " << line << std::endl;
         }
     }
 
@@ -305,17 +320,12 @@ void KMC_Simulator::execute_event(int event_index) {
     // KMC_Simulator 现在承担了所有事件类型的执行逻辑。
     switch (chosen_event.etype) {
         case 1: {
-            // 实现随机游走事件的逻辑：
-            std::uniform_int_distribution<int> axis_dist(0, 2);   // 选择轴 (X, Y, Z)
-            std::uniform_int_distribution<int> sign_dist(0, 1);   // 选择方向 (+/-)
-
-            int axis = axis_dist(generator);                  // 随机选择移动的轴
-            double direction_sign = (sign_dist(generator) == 0 ? -1.0 : 1.0); // 随机选择移动的方向
-            
-            double displacement = jump_distance * direction_sign;
+            int closest_sp_id = find_closest_stress_point_id(target_site.x, target_site.y, target_site.z);
+            std::vector<double> direction=stress_field_data[closest_sp_id].tr_grad;
+            double displacement = jump_distance;
 
             // 调用 Site 对象的 `move` 方法来更新其位置
-            target_site.move(axis, displacement);
+            target_site.move(direction, displacement);
             apply_pbc(target_site); 
             double updated_prop=calculate_site_random_walk_propensity(target_site);
             all_events[event_index].propensity=updated_prop;
