@@ -25,7 +25,7 @@ public:
     ~KMC_Simulator();
 
     void initialize_sites();
-    void run(double max_time, int max_steps);
+    void run(double max_time, long long int max_steps);
     bool initialize_sites_from_csv(const std::string& filename);
     bool read_stress_field_from_csv(const std::string& filename);
 private:
@@ -88,7 +88,7 @@ private:
 
     // --- 模拟状态和输出函数 ---
     void print_status(); // 打印当前模拟时间、步数等状态信息
-    void dump_sites(int step); // 将所有 Site 的当前坐标输出到文件，用于后续分析或可视化
+    void dump_sites(long long int step); // 将所有 Site 的当前坐标输出到文件，用于后续分析或可视化
 };
 
 #endif // KMC_SIMULATOR_Hs

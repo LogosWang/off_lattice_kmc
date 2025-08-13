@@ -390,7 +390,7 @@ void KMC_Simulator::print_status() {
 
 // --- 输出 Site 坐标到文件 ---
 // 将所有 Site 的当前三维坐标以 .xyz 格式写入文件，方便外部工具（如 VMD）进行可视化。
-void KMC_Simulator::dump_sites(int step) {
+void KMC_Simulator::dump_sites(long long int step) {
     std::string filename = "sites_" + std::to_string(step) + ".xyz"; // 文件名包含 KMC 步数
     std::ofstream outfile(filename); // 创建并打开文件
 
@@ -412,7 +412,7 @@ void KMC_Simulator::dump_sites(int step) {
     outfile.close(); // 关闭文件
 }
 
-void KMC_Simulator::run(double max_time, int max_steps) {
+void KMC_Simulator::run(double max_time, long long int max_steps) {
     std::cout << "\nStarting KMC simulation..." << std::endl;
     std::cout << "Maximum Simulation Time: " << max_time 
               << ", Maximum KMC Steps: " << max_steps << std::endl;
@@ -475,7 +475,7 @@ void KMC_Simulator::run(double max_time, int max_steps) {
        // calculate_all_propensities_and_events(); // 目前继续全量重建事件列表
 
         // 每隔一定步数输出模拟状态和粒子构型
-        if (total_steps % 10000000 == 0) { // 例如，每 1000 步输出一次
+        if (total_steps % 100000000 == 0) { // 例如，每 1000 步输出一次
             print_status();
             dump_sites(total_steps);
         }
