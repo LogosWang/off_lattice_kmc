@@ -485,7 +485,7 @@ void KMC_Simulator::run(double max_time, long long int max_steps) {
        // calculate_all_propensities_and_events(); // 目前继续全量重建事件列表
 
         // 每隔一定步数输出模拟状态和粒子构型
-        if (total_steps % 100000000 == 0) { // 例如，每 1000 步输出一次
+        if (total_steps % 100000 == 0) { // 例如，每 1000 步输出一次
             print_status();
             dump_sites(total_steps);
         }
