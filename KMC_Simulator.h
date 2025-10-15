@@ -16,10 +16,11 @@
 #include "Site.h"     // KMC_Simulator 需要知道 Site 类的定义来管理 Site 对象
 #include "Event.h"    // KMC_Simulator 需要知道 Event 类的定义来管理 Event 对象
 #include "StressPoint.h" 
+#include "GB.h" 
 class KMC_Simulator {
 public:
    
-    KMC_Simulator(int num_sites, double box_size, unsigned int seed, double unit_jump_distance, int CSVflag);
+    KMC_Simulator(int num_sites, double box_size, unsigned int seed, double unit_jump_distance, int CSVflag, double GB_A, double GB_B, double GB_C, double GB_D);
 
     
     ~KMC_Simulator();
@@ -36,9 +37,20 @@ private:
     static const double EV_TO_JOULE;        // eV 到焦耳的转换因子
     static const double ACTIVATION_VOLUME;  // 活化体积 (m^3) - 确保此值为正
     static const double PRE_FACTOR_V0;      // 前因子 (s^-1)
+    static const int OXYGEN_DIFF;
+    static const int OXYGEN_ABS;
+    static const int SILIC;
+    static const int OXYG;
+    
 
 
     int CSVflag;
+    double GB_A;
+    double GB_B;
+    double GB_C;
+    double GB_D;
+    GB grain_boundary;
+    
     int num_sites;     // 粒子数量
     double box_size;   // 模拟盒子的尺寸
     double unit_jump_distance;
@@ -67,6 +79,8 @@ private:
     // **关键函数：计算并更新所有事件的倾向，同时构建 all_events 列表**
     // 每次模拟状态改变（如一个事件发生）后，都需要调用此函数以更新事件池。
     int find_closest_stress_point_id(double px, double py, double pz) const;
+    double calculate_adsorption_propensity() const; 
+    
     void calculate_all_propensities_and_events(); 
     // **关键函数：根据吉莱斯皮算法选择下一个要执行的事件**
     // 返回被选中的 Event 在 all_events 列表中的索引。
@@ -81,6 +95,7 @@ private:
     // **关键优化函数：在事件发生后，只更新受影响站点（及其邻居）的事件倾向**
     // affected_site_id: 刚刚发生事件的 Site 的 ID。
     double calculate_site_random_walk_propensity(const Site& s) const;
+    double calculate_oxy_diffusion_propensity();
     void update_affected_events(int affected_site_id);
 
     double get_uniform_random();      // 生成一个 [0.0, 1.0) 范围内的均匀随机实数

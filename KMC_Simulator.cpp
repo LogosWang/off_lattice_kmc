@@ -14,17 +14,27 @@ const double KMC_Simulator::MIGRATION_BARRIER_EV = 1.0; // eV (示例迁移能�
 const double KMC_Simulator::EV_TO_JOULE = 1.60218e-19; // J/eV (eV 到焦耳的转换因子)
 const double KMC_Simulator::ACTIVATION_VOLUME = 1.0e-29; // m^3 (示例活化体积，请查阅文献，通常为正值)
 const double KMC_Simulator::PRE_FACTOR_V0 = 1.0e13; // s^-1 (示例前因子，请查阅文献)
+const int KMC_Simulator::OXYGEN_DIFF=3;
+const int KMC_Simulator::OXYGEN_ABS=2;
+const int KMC_Simulator::OXYG=2;
+const int KMC_Simulator::SILIC=0;
 
 
-KMC_Simulator::KMC_Simulator(int num_sites_arg, double box_size_arg, unsigned int seed, double unit_jump_distance_arg, int CSVflag) : 
+KMC_Simulator::KMC_Simulator(int num_sites_arg, double box_size_arg, unsigned int seed, double unit_jump_distance_arg, int CSVflag, double GB_A, double GB_B, double GB_C, double GB_D) : 
     num_sites(num_sites_arg),             // 粒子数量
     box_size(box_size_arg),               // 盒子大小
     unit_jump_distance(unit_jump_distance_arg),
-    CSVflag(CSVflag),     // 随机游走步长
+    CSVflag(CSVflag),     
+    GB_A(GB_A),
+    GB_B(GB_B),
+    GB_C(GB_C),
+    GB_D(GB_D),
+    
     generator(seed),                      // 初始化随机数引擎，使用提供的种子
     distribution(0.0, 1.0),               // 初始化均匀分布器，范围 [0.0, 1.0)
     current_time(0.0),                    // 模拟开始时时间为 0
-    total_steps(0)                        // 模拟开始时步数为 0
+    total_steps(0),                        // 模拟开始时步数为 0
+    grain_boundary(GB_A, GB_B, GB_C, GB_D, box_size_arg) 
 {
     // 预留 `sites` 向量的空间，避免在添加 Site 时不必要的内存重新分配
     sites.reserve(num_sites); 
@@ -202,6 +212,22 @@ int KMC_Simulator::find_closest_stress_point_id(double px, double py, double pz)
     return closest_id;
 }
 
+double KMC_Simulator::calculate_adsorption_propensity() const {
+    const double ADSORPTION_RATE_PER_SECOND = 1.0e7; 
+
+    int oxygen_count = 0;
+    for (const auto& s : sites) {
+        if (s.type == OXYG) {
+            oxygen_count++;
+        }
+    }
+    if (oxygen_count >= 500) { 
+        return 1.1e-12;
+    }
+
+    return ADSORPTION_RATE_PER_SECOND; 
+}
+
 
 void KMC_Simulator::calculate_all_propensities_and_events() {
     all_events.clear();                 
@@ -209,6 +235,16 @@ void KMC_Simulator::calculate_all_propensities_and_events() {
     site_to_event_indices.clear();      
 
     int current_event_index = 0; // 用于跟踪当前事件在 all_events 向量中的索引
+    double adsorption_propensity = calculate_adsorption_propensity();
+    if (adsorption_propensity > 1e-12) {
+        // 使用一个哑元 (Dummy) Site 对象
+        // static Site dummy_adsorption_site(std::numeric_limits<int>::max(), 0.0, 0.0, 0.0, -1); 
+
+        Event adsorption_event(OXYGEN_ADSORPTION_EVENT, adsorption_propensity, -1);
+        all_events.push_back(adsorption_event);
+        event_propensities_for_selection.push_back(adsorption_propensity);
+        current_event_index++; 
+    }
     for (int i = 0; i < num_sites; ++i) {
         // **计算事件倾向：**
         // 对于随机游走事件，我们假设其倾向是一个固定值，例如 1.0。
@@ -220,7 +256,7 @@ void KMC_Simulator::calculate_all_propensities_and_events() {
         // 注意：这里仍然传入了 `sites[i]` 的引用。
         // 我再次强调，虽然你的 `Event` 类定义允许这样做，但它有潜在的风险（向量重新分配导致引用失效）。
         // 最安全的做法是 `Event` 存储 `sites[i].id`，然后在这里传入 ID。
-        Event rw_event(1, calculated_propensity, sites[i]); 
+        Event rw_event(1, calculated_propensity, sites[i].id); 
         
         // 将创建的 Event 对象添加到总事件列表 `all_events`
         all_events.push_back(rw_event); 
@@ -234,6 +270,9 @@ void KMC_Simulator::calculate_all_propensities_and_events() {
         
         current_event_index++; 
     }
+}
+double KMC_Simulator::calculate_oxy_diffusion_propensity(){
+    return 5e5;
 }
 
 double KMC_Simulator::calculate_site_random_walk_propensity(const Site& s) const {
@@ -314,12 +353,13 @@ void KMC_Simulator::execute_event(int event_index) {
     const Event& chosen_event = all_events[event_index];
     
 
-    Site& target_site = const_cast<Site&>(chosen_event.site); 
+    // Site& target_site = const_cast<Site&>(sites[chosen_event.site_id]); 
 
     // 根据 Event 对象的类型 (etype) 来执行不同的操作
     // KMC_Simulator 现在承担了所有事件类型的执行逻辑。
     switch (chosen_event.etype) {
         case 1: {
+            Site& target_site = const_cast<Site&>(sites[chosen_event.site_id]); 
             int closest_sp_id = find_closest_stress_point_id(target_site.x, target_site.y, target_site.z);
             std::vector<double> direction=stress_field_data[closest_sp_id].tr_grad;
             double displacement = jump_distance;
@@ -331,6 +371,49 @@ void KMC_Simulator::execute_event(int event_index) {
             all_events[event_index].propensity=updated_prop;
             event_propensities_for_selection[event_index]=updated_prop;
             break;
+        }
+        case 2: {
+            int new_site_id = 0;
+            if (!sites.empty()) {
+                // 查找当前 sites 列表中最大的 ID + 1
+                int max_id = sites[0].id;
+                for(const auto& s : sites) {
+                    if (s.id > max_id) max_id = s.id;
+                }
+                new_site_id = max_id + 1;
+            }
+            
+            // 使用 GB 类在交线上随机生成 OXYGEN Site
+            Site new_oxygen = grain_boundary.generate_random_oxygen_site(new_site_id);
+            
+            // 将新 Site 加入到 sites 列表中
+            sites.push_back(new_oxygen);
+            Event oxy_diff_event(OXYGEN_DIFF, calculate_oxy_diffusion_propensity(),new_oxygen.id);
+            all_events.push_back(oxy_diff_event);
+            event_propensities_for_selection.push_back(calculate_oxy_diffusion_propensity());
+            all_events[event_index].propensity=calculate_adsorption_propensity();
+            event_propensities_for_selection[event_index]=all_events[event_index].propensity;
+            int current_event_index=all_events.size()-1;
+            site_to_event_indices[new_oxygen.id].push_back(current_event_index);
+            std::cout << "Adsorption: New Oxygen Site " << new_site_id 
+                      << " created at (" << new_oxygen.x << ", " << new_oxygen.y 
+                      << ", " << new_oxygen.z << ") on GB." << std::endl;
+            double absoption_propensity=calculate_adsorption_propensity();
+            all_events[event_index].propensity=absoption_propensity;
+            event_propensities_for_selection[event_index]=all_events[event_index].propensity; 
+            break;
+
+        }
+        case 3: {
+            Site& target_site = const_cast<Site&>(sites[chosen_event.site_id]);
+            double xm = 2.0*get_uniform_random()-1;
+            double zm = 2.0*get_uniform_random()-1;
+            target_site.x += 10.0*xm*jump_distance;
+            target_site.z += 10.0*zm*jump_distance;
+            target_site.y = -(GB_A*target_site.x+GB_C*target_site.z+GB_D)/GB_B;
+            grain_boundary.apply_pbc_and_constrain(target_site);
+            // std::cout<<"oxygen move, site id: "<<target_site.id<<" "<<jump_distance<<std::endl;
+            break; 
         }
         default: {
             // 如果遇到未知的事件类型，则输出错误信息
@@ -410,15 +493,22 @@ void KMC_Simulator::dump_sites(long long int step) {
     }
 
     // .xyz 文件格式要求：
-    outfile << num_sites << std::endl; // 第一行：原子数量
+    outfile << sites.size() << std::endl; // 第一行：原子数量
     outfile << "KMC Step: " << step << ", Time: " << std::fixed << std::setprecision(6) << current_time << std::endl; // 第二行：注释
 
     // 写入每个 Site 的数据
     for (const auto& s : sites) {
+        if (s.type==0){
         outfile << "Si " << std::fixed << std::setprecision(6) 
                 << s.x << " " << s.y << " " << s.z << std::endl;
+        }
+        else if (s.type==2){
+        outfile << "O " << std::fixed << std::setprecision(6) 
+                << s.x << " " << s.y << " " << s.z << std::endl;}
+        
         // std::cout<<"writing"<<std::endl;
     }
+
     outfile.close(); // 关闭文件
 }
 
@@ -485,7 +575,7 @@ void KMC_Simulator::run(double max_time, long long int max_steps) {
        // calculate_all_propensities_and_events(); // 目前继续全量重建事件列表
 
         // 每隔一定步数输出模拟状态和粒子构型
-        if (total_steps % 100000 == 0) { // 例如，每 1000 步输出一次
+        if (total_steps % 10000 == 0) { // 例如，每 1000 步输出一次
             print_status();
             dump_sites(total_steps);
         }

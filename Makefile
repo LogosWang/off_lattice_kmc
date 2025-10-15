@@ -8,7 +8,7 @@ CXX = clang++
 CXXFLAGS = -std=c++11 -Wall -O3 -g
 
 # 定义你的所有源文件
-SRCS = main.cpp KMC_Simulator.cpp Site.cpp Event.cpp StressPoint.cpp
+SRCS = main.cpp KMC_Simulator.cpp Site.cpp Event.cpp StressPoint.cpp GB.cpp
 
 # 定义最终的可执行文件名称
 TARGET = kmc_sim

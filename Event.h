@@ -9,8 +9,11 @@ class Event {
 public:
     int etype;
     double propensity;
-    const Site& site;
-    Event(int etype,double propensity,const Site& site);
+     int site_id; 
+
+    // 构造函数签名也必须更新
+    // Event(int etype, double propensity, const Site& site); // 旧
+    Event(int etype, double propensity, int site_id); 
 };
 
 
