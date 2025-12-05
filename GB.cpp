@@ -161,6 +161,11 @@ std::vector<double> GB::project_displacement(const std::vector<double>& displace
     return v_parallel;
 }
 
+double GB::get_GB_distance(double x, double y, double z) const {
+    double d=std::abs(A*x+B*y+C*z+D)/std::sqrt(A*A + B*B + C*C);
+    return d;
+}
+
 // --- 针对 OXYGEN_SITE 的特殊 PBC 和平面约束 (迭代直到收敛) ---
 void GB::apply_pbc_and_constrain(Site& s) {
     if (s.type != OXYGEN_SITE_TYPE) {

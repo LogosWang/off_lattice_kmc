@@ -20,7 +20,7 @@
 class KMC_Simulator {
 public:
    
-    KMC_Simulator(int num_sites, double box_size, unsigned int seed, double unit_jump_distance, int CSVflag, double GB_A, double GB_B, double GB_C, double GB_D);
+    KMC_Simulator(int num_sites, double box_size, unsigned int seed, double unit_jump_distance, int CSVflag, double GB_A, double GB_B, double GB_C, double GB_D, int Diff_mod);
 
     
     ~KMC_Simulator();
@@ -38,9 +38,14 @@ private:
     static const double ACTIVATION_VOLUME;  // 活化体积 (m^3) - 确保此值为正
     static const double PRE_FACTOR_V0;      // 前因子 (s^-1)
     static const int OXYGEN_DIFF;
+    static const int SILI_DIFF;
+    static const int CROM_DIFF;
     static const int OXYGEN_ABS;
     static const int SILIC;
     static const int OXYG;
+    static const int CROM;
+    static const int RANDDIFF;
+    static const int TRACKDIFF;
     
 
 
@@ -49,6 +54,7 @@ private:
     double GB_B;
     double GB_C;
     double GB_D;
+    int Diff_mod;
     GB grain_boundary;
     
     int num_sites;     // 粒子数量
@@ -94,7 +100,8 @@ private:
 
     // **关键优化函数：在事件发生后，只更新受影响站点（及其邻居）的事件倾向**
     // affected_site_id: 刚刚发生事件的 Site 的 ID。
-    double calculate_site_random_walk_propensity(const Site& s) const;
+    double calculate_Si_site_random_walk_propensity(const Site& s) const;
+    double calculate_Cr_site_random_walk_propensity(const Site& s) const;
     double calculate_oxy_diffusion_propensity();
     void update_affected_events(int affected_site_id);
 

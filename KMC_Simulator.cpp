@@ -9,18 +9,22 @@
 // 这些值应该放在 KMC_Simulator 类的成员函数之外
 // **** 请根据 Si 在奥氏体不锈钢中的实际物理参数调整这些值 ****
 const double KMC_Simulator::KB = 1.380649e-23; // J/K (玻尔兹曼常数)
-const double KMC_Simulator::TEMPERATURE = 800.0 + 273.15; // K (例如 800 摄氏度，转换为开尔文)
+const double KMC_Simulator::TEMPERATURE = 400.0 + 273.15; // K (例如 800 摄氏度，转换为开尔文)
 const double KMC_Simulator::MIGRATION_BARRIER_EV = 1.0; // eV (示例迁移能垒，请查阅文献)
 const double KMC_Simulator::EV_TO_JOULE = 1.60218e-19; // J/eV (eV 到焦耳的转换因子)
-const double KMC_Simulator::ACTIVATION_VOLUME = 1.0e-29; // m^3 (示例活化体积，请查阅文献，通常为正值)
+const double KMC_Simulator::ACTIVATION_VOLUME = 1.0e-28; // m^3 (示例活化体积，请查阅文献，通常为正值)
 const double KMC_Simulator::PRE_FACTOR_V0 = 1.0e13; // s^-1 (示例前因子，请查阅文献)
 const int KMC_Simulator::OXYGEN_DIFF=3;
+const int KMC_Simulator::SILI_DIFF=1;
+const int KMC_Simulator::CROM_DIFF=4;
 const int KMC_Simulator::OXYGEN_ABS=2;
 const int KMC_Simulator::OXYG=2;
+const int KMC_Simulator::CROM=1;
 const int KMC_Simulator::SILIC=0;
+const int KMC_Simulator::RANDDIFF=0;
+const int KMC_Simulator::TRACKDIFF=1;
 
-
-KMC_Simulator::KMC_Simulator(int num_sites_arg, double box_size_arg, unsigned int seed, double unit_jump_distance_arg, int CSVflag, double GB_A, double GB_B, double GB_C, double GB_D) : 
+KMC_Simulator::KMC_Simulator(int num_sites_arg, double box_size_arg, unsigned int seed, double unit_jump_distance_arg, int CSVflag, double GB_A, double GB_B, double GB_C, double GB_D, int Diff_mod) : 
     num_sites(num_sites_arg),             // 粒子数量
     box_size(box_size_arg),               // 盒子大小
     unit_jump_distance(unit_jump_distance_arg),
@@ -29,6 +33,7 @@ KMC_Simulator::KMC_Simulator(int num_sites_arg, double box_size_arg, unsigned in
     GB_B(GB_B),
     GB_C(GB_C),
     GB_D(GB_D),
+    Diff_mod(Diff_mod),
     
     generator(seed),                      // 初始化随机数引擎，使用提供的种子
     distribution(0.0, 1.0),               // 初始化均匀分布器，范围 [0.0, 1.0)
@@ -71,7 +76,7 @@ void KMC_Simulator::initialize_sites() {
     print_status(); // 打印当前模拟状态
 }
 else {
-    initialize_sites_from_csv("sites.csv");
+    initialize_sites_from_csv("sites2type.csv");
 }
 }
 
@@ -249,33 +254,32 @@ void KMC_Simulator::calculate_all_propensities_and_events() {
         // **计算事件倾向：**
         // 对于随机游走事件，我们假设其倾向是一个固定值，例如 1.0。
         // 如果未来引入依赖于 Site 状态（如是否有空位）的倾向，这部分逻辑会更复杂。
-        double calculated_propensity = calculate_site_random_walk_propensity(sites[i]); 
-
-        // **创建 Event 对象：**
-        // 使用 Event 构造函数 Event(EventType type, double prop, const Site& s)
-        // 注意：这里仍然传入了 `sites[i]` 的引用。
-        // 我再次强调，虽然你的 `Event` 类定义允许这样做，但它有潜在的风险（向量重新分配导致引用失效）。
-        // 最安全的做法是 `Event` 存储 `sites[i].id`，然后在这里传入 ID。
-        Event rw_event(1, calculated_propensity, sites[i].id); 
-        
+        if (sites[i].type==SILIC){
+        double calculated_propensity = calculate_Si_site_random_walk_propensity(sites[i]); 
+        Event rw_event(SILI_DIFF, calculated_propensity, sites[i].id); 
         // 将创建的 Event 对象添加到总事件列表 `all_events`
         all_events.push_back(rw_event); 
-        // 将该事件的倾向值添加到用于选择的倾向列表 `event_propensities_for_selection`
         event_propensities_for_selection.push_back(calculated_propensity); 
-        
-        // **更新站点-事件索引映射：**
-        // 将当前 Site 的 ID 映射到 `all_events` 中它所关联的事件的索引。
-        // 一个随机游走事件只与一个站点关联。
         site_to_event_indices[sites[i].id].push_back(current_event_index);
-        
-        current_event_index++; 
+        current_event_index++;}
+        else if (sites[i].type==CROM)
+        {
+        double calculated_propensity = calculate_Cr_site_random_walk_propensity(sites[i]); 
+        Event rw_event(CROM_DIFF, calculated_propensity, sites[i].id); 
+        // 将创建的 Event 对象添加到总事件列表 `all_events`
+        all_events.push_back(rw_event); 
+        event_propensities_for_selection.push_back(calculated_propensity); 
+        site_to_event_indices[sites[i].id].push_back(current_event_index);
+        current_event_index++;
+        }
+         
     }
 }
 double KMC_Simulator::calculate_oxy_diffusion_propensity(){
-    return 5e5;
+    return 5e2;
 }
 
-double KMC_Simulator::calculate_site_random_walk_propensity(const Site& s) const {
+double KMC_Simulator::calculate_Si_site_random_walk_propensity(const Site& s) const {
     // 1. 找到距离当前 Site 最近的 StressPoint 的 ID (即 vector 索引)
     int closest_sp_id = find_closest_stress_point_id(s.x, s.y, s.z);
 
@@ -305,14 +309,58 @@ double KMC_Simulator::calculate_site_random_walk_propensity(const Site& s) const
 
     // 计算完整的指数项： effective_barrier / (kB * T)
     double exponent_term = effective_barrier / kb_T;
-
+    double dis_to_GB=grain_boundary.get_GB_distance(s.x, s.y, s.z);
     // 最终计算倾向： v0 * exp(-exponent_term)
-    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term);
+    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*(1.0-std::exp(-dis_to_GB/5e-5));
     propensity *= 1e-3; 
     // ms-1 unit
 
     // 4. 确保计算出的倾向为正数，防止数学错误或不合理结果
-    if (propensity <= 0) {
+    if (propensity <= 0.0) {
+        propensity = 1e-30; // 设置一个非常小的正值，避免零或负倾向
+        std::cerr << "警告：为 Site " << s.id << " 计算出的倾向为非正值 (" << propensity << ")，已强制设置为 1e-30。最近应力迹: " << site_stress_trace << std::endl;
+    }
+
+    return propensity;
+}
+double KMC_Simulator::calculate_Cr_site_random_walk_propensity(const Site& s) const {
+    // 1. 找到距离当前 Site 最近的 StressPoint 的 ID (即 vector 索引)
+    int closest_sp_id = find_closest_stress_point_id(s.x, s.y, s.z);
+
+    double site_stress_trace = 0.0; // 初始化应力迹
+
+    // 2. 根据 ID (索引) 从 stress_field_data (vector) 中获取对应的 StressPoint 的 trace 值
+    //    这里进行了边界检查，确保 closest_sp_id 是一个有效的索引
+    if (closest_sp_id >= 0 && closest_sp_id < static_cast<int>(stress_field_data.size())) {
+        site_stress_trace = stress_field_data[closest_sp_id].trace;
+    } else {
+        // 如果 find_closest_stress_point_id 返回 -1 或 ID 超出 vector 范围，
+        // 则打印警告并使用默认应力迹 0.0。
+        std::cerr << "警告：未找到 Site " << s.id << " 对应的应力场数据点 (ID: " << closest_sp_id << ")，使用默认应力迹 0.0。" << std::endl;
+        site_stress_trace = 0.0;
+    }
+
+    // 3. 使用你最终确认的公式计算倾向：
+    //    v = v0 * exp(-(DeltaE + tr(sigma) * Omega) / (kB * T))
+    //    其中 DeltaE 已经从 eV 转换为焦耳 (DELTA_E_JOULE)
+    double DELTA_E_JOULE = MIGRATION_BARRIER_EV * EV_TO_JOULE;
+
+    // 计算有效能垒： DeltaE + tr(sigma) * Omega
+    double effective_barrier = DELTA_E_JOULE + (site_stress_trace * ACTIVATION_VOLUME);
+
+    // 计算指数项的除数： kB * T
+    double kb_T = KB * TEMPERATURE;
+
+    // 计算完整的指数项： effective_barrier / (kB * T)
+    double exponent_term = effective_barrier / kb_T;
+    double dis_to_GB=grain_boundary.get_GB_distance(s.x, s.y, s.z);
+    // 最终计算倾向： v0 * exp(-exponent_term)
+    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term*(1.0-std::exp(-dis_to_GB/2e-5)));
+    propensity *= 1e-3; 
+    // ms-1 unit
+
+    // 4. 确保计算出的倾向为正数，防止数学错误或不合理结果
+    if (propensity <= 0.0) {
         propensity = 1e-30; // 设置一个非常小的正值，避免零或负倾向
         std::cerr << "警告：为 Site " << s.id << " 计算出的倾向为非正值 (" << propensity << ")，已强制设置为 1e-30。最近应力迹: " << site_stress_trace << std::endl;
     }
@@ -320,13 +368,13 @@ double KMC_Simulator::calculate_site_random_walk_propensity(const Site& s) const
     return propensity;
 }
 
-
 int KMC_Simulator::select_event_index() {
     // 计算所有事件的总倾向 H (吉莱斯皮算法中的 A_0)
     double total_propensity = std::accumulate(event_propensities_for_selection.begin(), event_propensities_for_selection.end(), 0.0);
 
     // 如果总倾向为零或负，说明没有事件可以发生
     if (total_propensity <= 0.0) {
+        std::cout<<"total p < 0"<<std::endl;
         return -1;
     }
 
@@ -358,21 +406,63 @@ void KMC_Simulator::execute_event(int event_index) {
     // 根据 Event 对象的类型 (etype) 来执行不同的操作
     // KMC_Simulator 现在承担了所有事件类型的执行逻辑。
     switch (chosen_event.etype) {
-        case 1: {
+        case SILI_DIFF: {
             Site& target_site = const_cast<Site&>(sites[chosen_event.site_id]); 
             int closest_sp_id = find_closest_stress_point_id(target_site.x, target_site.y, target_site.z);
-            std::vector<double> direction=stress_field_data[closest_sp_id].tr_grad;
+            std::vector<double> direction(3);
+            if (Diff_mod==TRACKDIFF){
+                direction=stress_field_data[closest_sp_id].tr_grad;
+            }
+            else if (Diff_mod==RANDDIFF)
+            {
+                double rx = 2.0*get_uniform_random()-1;
+                double ry = 2.0*get_uniform_random()-1;
+                double rz = 2.0*get_uniform_random()-1;
+                double leng = std::sqrt(rx*rx+ry*ry+rz*rz);
+                direction[0]=rx/leng;
+                direction[1]=ry/leng;
+                direction[2]=rz/leng;
+            }
+            
             double displacement = jump_distance;
 
             // 调用 Site 对象的 `move` 方法来更新其位置
             target_site.move(direction, displacement);
             apply_pbc(target_site); 
-            double updated_prop=calculate_site_random_walk_propensity(target_site);
+            double updated_prop=calculate_Si_site_random_walk_propensity(target_site);
             all_events[event_index].propensity=updated_prop;
             event_propensities_for_selection[event_index]=updated_prop;
             break;
         }
-        case 2: {
+        case CROM_DIFF: {
+            Site& target_site = const_cast<Site&>(sites[chosen_event.site_id]); 
+            int closest_sp_id = find_closest_stress_point_id(target_site.x, target_site.y, target_site.z);
+            std::vector<double> direction(3);
+            if (Diff_mod==TRACKDIFF){
+                direction=stress_field_data[closest_sp_id].tr_grad;
+            }
+            else if (Diff_mod==RANDDIFF)
+            {
+                double rx = 2.0*get_uniform_random()-1;
+                double ry = 2.0*get_uniform_random()-1;
+                double rz = 2.0*get_uniform_random()-1;
+                double leng = std::sqrt(rx*rx+ry*ry+rz*rz);
+                direction[0]=rx/leng;
+                direction[1]=ry/leng;
+                direction[2]=rz/leng;
+            }
+            
+            double displacement = jump_distance;
+
+            // 调用 Site 对象的 `move` 方法来更新其位置
+            target_site.move(direction, displacement);
+            apply_pbc(target_site); 
+            double updated_prop=calculate_Cr_site_random_walk_propensity(target_site);
+            all_events[event_index].propensity=updated_prop;
+            event_propensities_for_selection[event_index]=updated_prop;
+            break;
+        }
+        case OXYGEN_ABS: {
             int new_site_id = 0;
             if (!sites.empty()) {
                 // 查找当前 sites 列表中最大的 ID + 1
@@ -404,7 +494,7 @@ void KMC_Simulator::execute_event(int event_index) {
             break;
 
         }
-        case 3: {
+        case OXYGEN_DIFF: {
             Site& target_site = const_cast<Site&>(sites[chosen_event.site_id]);
             double xm = 2.0*get_uniform_random()-1;
             double zm = 2.0*get_uniform_random()-1;
@@ -498,11 +588,15 @@ void KMC_Simulator::dump_sites(long long int step) {
 
     // 写入每个 Site 的数据
     for (const auto& s : sites) {
-        if (s.type==0){
+        if (s.type==SILIC){
         outfile << "Si " << std::fixed << std::setprecision(6) 
                 << s.x << " " << s.y << " " << s.z << std::endl;
         }
-        else if (s.type==2){
+        else if (s.type==CROM){
+        outfile << "Cr " << std::fixed << std::setprecision(6) 
+                << s.x << " " << s.y << " " << s.z << std::endl;
+        }
+        else if (s.type==OXYG){
         outfile << "O " << std::fixed << std::setprecision(6) 
                 << s.x << " " << s.y << " " << s.z << std::endl;}
         

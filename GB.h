@@ -43,7 +43,7 @@ public:
 
     // 将一个位移向量投影到 GB 平面上 (用于 OXYGEN 扩散的位移向量)
     std::vector<double> project_displacement(const std::vector<double>& displacement) const;
-
+    double get_GB_distance(double x, double y, double z) const;
 private:
     // --- 辅助函数：根据平面方程计算第三个坐标 (用于迭代 PBC) ---
 
