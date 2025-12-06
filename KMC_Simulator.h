@@ -36,7 +36,8 @@ private:
     static const double MIGRATION_BARRIER_EV; // 迁移能垒 (eV)
     static const double EV_TO_JOULE;        // eV 到焦耳的转换因子
     static const double ACTIVATION_VOLUME;  // 活化体积 (m^3) - 确保此值为正
-    static const double PRE_FACTOR_V0;      // 前因子 (s^-1)
+    static const double PRE_FACTOR_V0;  
+    static const double OXIDATION_THRESH; 
     static const int OXYGEN_DIFF;
     static const int SILI_DIFF;
     static const int CROM_DIFF;
@@ -79,12 +80,16 @@ private:
     std::unordered_map<int, std::vector<int>> site_to_event_indices; 
     double current_time;           // 模拟已经进行的总时间
     long long total_steps;         // 模拟已经完成的 KMC 步骤总数
-
+    int num_si_oxide;
+    int num_cr_oxide;
+    int num_total_oxide;
     // --- KMC 核心算法的内部辅助函数 ---
 
     // **关键函数：计算并更新所有事件的倾向，同时构建 all_events 列表**
     // 每次模拟状态改变（如一个事件发生）后，都需要调用此函数以更新事件池。
     int find_closest_stress_point_id(double px, double py, double pz) const;
+    int find_closest_Oxy_id(double px, double py, double pz) const;
+    int find_closest_Non_Oxy_id(double px, double py, double pz) const;
     double calculate_adsorption_propensity() const; 
     
     void calculate_all_propensities_and_events(); 
@@ -111,6 +116,7 @@ private:
     // --- 模拟状态和输出函数 ---
     void print_status(); // 打印当前模拟时间、步数等状态信息
     void dump_sites(long long int step); // 将所有 Site 的当前坐标输出到文件，用于后续分析或可视化
+    void write_oxide_csv();
 };
 
 #endif // KMC_SIMULATOR_Hs

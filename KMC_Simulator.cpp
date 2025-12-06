@@ -14,6 +14,7 @@ const double KMC_Simulator::MIGRATION_BARRIER_EV = 1.0; // eV (示例迁移能�
 const double KMC_Simulator::EV_TO_JOULE = 1.60218e-19; // J/eV (eV 到焦耳的转换因子)
 const double KMC_Simulator::ACTIVATION_VOLUME = 1.0e-28; // m^3 (示例活化体积，请查阅文献，通常为正值)
 const double KMC_Simulator::PRE_FACTOR_V0 = 1.0e13; // s^-1 (示例前因子，请查阅文献)
+const double KMC_Simulator::OXIDATION_THRESH = 1.0e-5; 
 const int KMC_Simulator::OXYGEN_DIFF=3;
 const int KMC_Simulator::SILI_DIFF=1;
 const int KMC_Simulator::CROM_DIFF=4;
@@ -38,7 +39,10 @@ KMC_Simulator::KMC_Simulator(int num_sites_arg, double box_size_arg, unsigned in
     generator(seed),                      // 初始化随机数引擎，使用提供的种子
     distribution(0.0, 1.0),               // 初始化均匀分布器，范围 [0.0, 1.0)
     current_time(0.0),                    // 模拟开始时时间为 0
-    total_steps(0),                        // 模拟开始时步数为 0
+    total_steps(0),
+    num_si_oxide(0),
+    num_cr_oxide(0),
+    num_total_oxide(0),                        // 模拟开始时步数为 0
     grain_boundary(GB_A, GB_B, GB_C, GB_D, box_size_arg) 
 {
     // 预留 `sites` 向量的空间，避免在添加 Site 时不必要的内存重新分配
@@ -212,6 +216,38 @@ int KMC_Simulator::find_closest_stress_point_id(double px, double py, double pz)
         if (current_dist < min_dist) {
             min_dist = current_dist;
             closest_id = sp.id;
+        }
+    }
+    return closest_id;
+}
+
+int KMC_Simulator::find_closest_Oxy_id(double px, double py, double pz) const {
+    double min_dist = std::numeric_limits<double>::max(); // 存储最小距离
+    int closest_id = -1; // 存储最近点的 ID
+
+    for (int i=0; i<sites.size(); ++i) {
+        // 使用 StressPoint 类的 get_distance 方法来计算距离
+        double current_dist = std::sqrt((px-sites[i].x)*(px-sites[i].x)+(py-sites[i].y)*(py-sites[i].y)+(pz-sites[i].z)*(pz-sites[i].z));
+
+        if (current_dist < min_dist && sites[i].type==OXYG) {
+            min_dist = current_dist;
+            closest_id = i;
+        }
+    }
+    return closest_id;
+}
+
+int KMC_Simulator::find_closest_Non_Oxy_id(double px, double py, double pz) const {
+    double min_dist = std::numeric_limits<double>::max(); // 存储最小距离
+    int closest_id = -1; // 存储最近点的 ID
+
+    for (int i=0; i<sites.size(); ++i) {
+        // 使用 StressPoint 类的 get_distance 方法来计算距离
+        double current_dist = std::sqrt((px-sites[i].x)*(px-sites[i].x)+(py-sites[i].y)*(py-sites[i].y)+(pz-sites[i].z)*(pz-sites[i].z));
+
+        if (current_dist < min_dist && sites[i].type!=OXYG) {
+            min_dist = current_dist;
+            closest_id = i;
         }
     }
     return closest_id;
@@ -432,6 +468,30 @@ void KMC_Simulator::execute_event(int event_index) {
             double updated_prop=calculate_Si_site_random_walk_propensity(target_site);
             all_events[event_index].propensity=updated_prop;
             event_propensities_for_selection[event_index]=updated_prop;
+            int Oxyid = find_closest_Oxy_id(target_site.x, target_site.y, target_site.z);
+            if (Oxyid!=-1){
+                double Oxy_dis=std::sqrt((target_site.x-sites[Oxyid].x)*(target_site.x-sites[Oxyid].x)+(target_site.y-sites[Oxyid].y)*(target_site.y-sites[Oxyid].y)+(target_site.z-sites[Oxyid].z)*(target_site.z-sites[Oxyid].z));
+                if (Oxy_dis<OXIDATION_THRESH){
+                    updated_prop=1e-10;
+                    all_events[event_index].propensity=updated_prop;
+                    event_propensities_for_selection[event_index]=updated_prop;
+                    int Oxy_diff_index=-1;
+                    for (int i=0; i<site_to_event_indices[Oxyid].size(); ++i){
+                        if (all_events[site_to_event_indices[Oxyid][i]].etype==OXYGEN_DIFF){
+                            Oxy_diff_index=site_to_event_indices[Oxyid][i];
+                            break;
+                        }
+
+                    }
+                    all_events[Oxy_diff_index].propensity=updated_prop;
+                    event_propensities_for_selection[Oxy_diff_index]=updated_prop;
+                    std::cout<<"Si oxide formed"<<std::endl;
+                    num_si_oxide += 1;
+                    num_total_oxide += 1;
+                    write_oxide_csv();
+
+                }
+            }
             break;
         }
         case CROM_DIFF: {
@@ -460,6 +520,30 @@ void KMC_Simulator::execute_event(int event_index) {
             double updated_prop=calculate_Cr_site_random_walk_propensity(target_site);
             all_events[event_index].propensity=updated_prop;
             event_propensities_for_selection[event_index]=updated_prop;
+            int Oxyid = find_closest_Oxy_id(target_site.x, target_site.y, target_site.z);
+            if (Oxyid!=-1){
+                double Oxy_dis=std::sqrt((target_site.x-sites[Oxyid].x)*(target_site.x-sites[Oxyid].x)+(target_site.y-sites[Oxyid].y)*(target_site.y-sites[Oxyid].y)+(target_site.z-sites[Oxyid].z)*(target_site.z-sites[Oxyid].z));
+                if (Oxy_dis<OXIDATION_THRESH){
+                    updated_prop=1e-10;
+                    all_events[event_index].propensity=updated_prop;
+                    event_propensities_for_selection[event_index]=updated_prop;
+                    int Oxy_diff_index=-1;
+                    for (int i=0; i<site_to_event_indices[Oxyid].size(); ++i){
+                        if (all_events[site_to_event_indices[Oxyid][i]].etype==OXYGEN_DIFF){
+                            Oxy_diff_index=site_to_event_indices[Oxyid][i];
+                            break;
+                        }
+
+                    }
+                    all_events[Oxy_diff_index].propensity=updated_prop;
+                    event_propensities_for_selection[Oxy_diff_index]=updated_prop;
+                    std::cout<<"Cr oxide formed"<<std::endl;
+                    num_cr_oxide += 1;
+                    num_total_oxide += 1;
+                    write_oxide_csv();
+
+                }
+            }
             break;
         }
         case OXYGEN_ABS: {
@@ -503,6 +587,38 @@ void KMC_Simulator::execute_event(int event_index) {
             target_site.y = -(GB_A*target_site.x+GB_C*target_site.z+GB_D)/GB_B;
             grain_boundary.apply_pbc_and_constrain(target_site);
             // std::cout<<"oxygen move, site id: "<<target_site.id<<" "<<jump_distance<<std::endl;
+            int NonOxyid = find_closest_Non_Oxy_id(target_site.x, target_site.y, target_site.z);
+            if (NonOxyid!=-1){
+                double Oxy_dis=std::sqrt((target_site.x-sites[NonOxyid].x)*(target_site.x-sites[NonOxyid].x)+(target_site.y-sites[NonOxyid].y)*(target_site.y-sites[NonOxyid].y)+(target_site.z-sites[NonOxyid].z)*(target_site.z-sites[NonOxyid].z));
+                if (Oxy_dis<OXIDATION_THRESH){
+                    double updated_prop=1e-10;
+                    all_events[event_index].propensity=updated_prop;
+                    event_propensities_for_selection[event_index]=updated_prop;
+                    int NonOxy_diff_index=-1;
+                    for (int i=0; i<site_to_event_indices[NonOxyid].size(); ++i){
+                        if (all_events[site_to_event_indices[NonOxyid][i]].etype==SILI_DIFF || all_events[site_to_event_indices[NonOxyid][i]].etype==CROM_DIFF){
+                            NonOxy_diff_index=site_to_event_indices[NonOxyid][i];
+                            break;
+                        }
+
+                    }
+                    all_events[NonOxy_diff_index].propensity=updated_prop;
+                    event_propensities_for_selection[NonOxy_diff_index]=updated_prop;
+                    if (sites[NonOxyid].type==SILIC){
+                        std::cout<<"Si oxide formed"<<std::endl;
+                        num_si_oxide += 1;
+                        num_total_oxide += 1;
+                    }
+                    else if (sites[NonOxyid].type==CROM){
+                        std::cout<<"Cr oxide formed"<<std::endl;
+                        num_cr_oxide += 1;
+                        num_total_oxide += 1;
+                    }
+                    write_oxide_csv();
+
+                }
+            }
+            
             break; 
         }
         default: {
@@ -604,6 +720,34 @@ void KMC_Simulator::dump_sites(long long int step) {
     }
 
     outfile.close(); // 关闭文件
+}
+
+void KMC_Simulator::write_oxide_csv(){
+    const std::string filename = "oxidegrow.csv";
+
+    // 以追加模式打开文件（不存在则创建）
+    std::ofstream fout(filename, std::ios::app);
+    if (!fout.is_open()) {
+        std::cerr << "Error: Cannot open " << filename << " for writing.\n";
+        return;
+    }
+
+    // 关键：判断当前写位置是否在文件开头
+    // 如果文件是刚创建的，tellp() 会返回 0，需要写表头
+    bool need_header = (fout.tellp() == 0);
+
+    if (need_header) {
+        fout << "time,Si_oxide,Cr_oxide,Total_oxide\n";
+    }
+
+    // 写入一行数据
+    fout << current_time << ","
+         << num_si_oxide << ","
+         << num_cr_oxide << ","
+         << num_total_oxide << "\n";
+
+
+
 }
 
 void KMC_Simulator::run(double max_time, long long int max_steps) {
