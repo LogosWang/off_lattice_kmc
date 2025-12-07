@@ -7,7 +7,7 @@ public: // 通常情况下，站点的属性（位置、ID、类型）会设置�
     int id;       // 站点ID
     double x, y, z; // 坐标
     int type;     // 站点类型 (如果需要)
-
+    int status;
     // 构造函数
     Site(int site_id, double initial_x, double initial_y, double initial_z, int site_type = 0);
     void move(std::vector<double>,double);

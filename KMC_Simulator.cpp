@@ -14,7 +14,7 @@ const double KMC_Simulator::MIGRATION_BARRIER_EV = 1.0; // eV (示例迁移能�
 const double KMC_Simulator::EV_TO_JOULE = 1.60218e-19; // J/eV (eV 到焦耳的转换因子)
 const double KMC_Simulator::ACTIVATION_VOLUME = 1.0e-28; // m^3 (示例活化体积，请查阅文献，通常为正值)
 const double KMC_Simulator::PRE_FACTOR_V0 = 1.0e13; // s^-1 (示例前因子，请查阅文献)
-const double KMC_Simulator::OXIDATION_THRESH = 1.0e-5; 
+const double KMC_Simulator::OXIDATION_THRESH = 5.0e-6; 
 const int KMC_Simulator::OXYGEN_DIFF=3;
 const int KMC_Simulator::SILI_DIFF=1;
 const int KMC_Simulator::CROM_DIFF=4;
@@ -262,7 +262,7 @@ double KMC_Simulator::calculate_adsorption_propensity() const {
             oxygen_count++;
         }
     }
-    if (oxygen_count >= 500) { 
+    if (oxygen_count >= 2000) { 
         return 1.1e-12;
     }
 
@@ -471,7 +471,7 @@ void KMC_Simulator::execute_event(int event_index) {
             int Oxyid = find_closest_Oxy_id(target_site.x, target_site.y, target_site.z);
             if (Oxyid!=-1){
                 double Oxy_dis=std::sqrt((target_site.x-sites[Oxyid].x)*(target_site.x-sites[Oxyid].x)+(target_site.y-sites[Oxyid].y)*(target_site.y-sites[Oxyid].y)+(target_site.z-sites[Oxyid].z)*(target_site.z-sites[Oxyid].z));
-                if (Oxy_dis<OXIDATION_THRESH){
+                if (Oxy_dis<OXIDATION_THRESH && sites[Oxyid].status==0){
                     updated_prop=1e-10;
                     all_events[event_index].propensity=updated_prop;
                     event_propensities_for_selection[event_index]=updated_prop;
@@ -488,6 +488,8 @@ void KMC_Simulator::execute_event(int event_index) {
                     std::cout<<"Si oxide formed"<<std::endl;
                     num_si_oxide += 1;
                     num_total_oxide += 1;
+                    target_site.status=1;
+                    sites[Oxyid].status=1;
                     write_oxide_csv();
 
                 }
@@ -523,7 +525,7 @@ void KMC_Simulator::execute_event(int event_index) {
             int Oxyid = find_closest_Oxy_id(target_site.x, target_site.y, target_site.z);
             if (Oxyid!=-1){
                 double Oxy_dis=std::sqrt((target_site.x-sites[Oxyid].x)*(target_site.x-sites[Oxyid].x)+(target_site.y-sites[Oxyid].y)*(target_site.y-sites[Oxyid].y)+(target_site.z-sites[Oxyid].z)*(target_site.z-sites[Oxyid].z));
-                if (Oxy_dis<OXIDATION_THRESH){
+                if (Oxy_dis<OXIDATION_THRESH && sites[Oxyid].status==0){
                     updated_prop=1e-10;
                     all_events[event_index].propensity=updated_prop;
                     event_propensities_for_selection[event_index]=updated_prop;
@@ -540,6 +542,8 @@ void KMC_Simulator::execute_event(int event_index) {
                     std::cout<<"Cr oxide formed"<<std::endl;
                     num_cr_oxide += 1;
                     num_total_oxide += 1;
+                    target_site.status=1;
+                    sites[Oxyid].status=1;
                     write_oxide_csv();
 
                 }
@@ -590,7 +594,7 @@ void KMC_Simulator::execute_event(int event_index) {
             int NonOxyid = find_closest_Non_Oxy_id(target_site.x, target_site.y, target_site.z);
             if (NonOxyid!=-1){
                 double Oxy_dis=std::sqrt((target_site.x-sites[NonOxyid].x)*(target_site.x-sites[NonOxyid].x)+(target_site.y-sites[NonOxyid].y)*(target_site.y-sites[NonOxyid].y)+(target_site.z-sites[NonOxyid].z)*(target_site.z-sites[NonOxyid].z));
-                if (Oxy_dis<OXIDATION_THRESH){
+                if (Oxy_dis<OXIDATION_THRESH && sites[NonOxyid].status==0){
                     double updated_prop=1e-10;
                     all_events[event_index].propensity=updated_prop;
                     event_propensities_for_selection[event_index]=updated_prop;
@@ -614,6 +618,8 @@ void KMC_Simulator::execute_event(int event_index) {
                         num_cr_oxide += 1;
                         num_total_oxide += 1;
                     }
+                    target_site.status=1;
+                    sites[NonOxyid].status=1;
                     write_oxide_csv();
 
                 }
@@ -813,7 +819,7 @@ void KMC_Simulator::run(double max_time, long long int max_steps) {
        // calculate_all_propensities_and_events(); // 目前继续全量重建事件列表
 
         // 每隔一定步数输出模拟状态和粒子构型
-        if (total_steps % 10000 == 0) { // 例如，每 1000 步输出一次
+        if (total_steps % 100000 == 0) { // 例如，每 1000 步输出一次
             print_status();
             dump_sites(total_steps);
         }

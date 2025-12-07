@@ -4,7 +4,7 @@
 // --- Constructor Definition ---
 // This defines how a new Site object is created and its members are initialized.
 Site::Site(int site_id, double initial_x, double initial_y, double initial_z, int site_type)
-    : id(site_id), x(initial_x), y(initial_y), z(initial_z), type(site_type)
+    : id(site_id), x(initial_x), y(initial_y), z(initial_z), type(site_type), status(0)
 {
     // Any additional setup logic for a new site can go here.
     // For simple initialization, the initializer list (after the colon) is efficient.
