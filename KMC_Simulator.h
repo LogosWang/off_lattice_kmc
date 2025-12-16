@@ -41,12 +41,15 @@ private:
     static const int OXYGEN_DIFF;
     static const int SILI_DIFF;
     static const int CROM_DIFF;
+    static const int NIK_DIFF;
     static const int OXYGEN_ABS;
     static const int SILIC;
     static const int OXYG;
     static const int CROM;
+    static const int NIK;
     static const int RANDDIFF;
     static const int TRACKDIFF;
+    static const double DOSE;
     
 
 
@@ -80,9 +83,12 @@ private:
     std::unordered_map<int, std::vector<int>> site_to_event_indices; 
     double current_time;           // 模拟已经进行的总时间
     long long total_steps;         // 模拟已经完成的 KMC 步骤总数
+    double oxi_prob;
     int num_si_oxide;
     int num_cr_oxide;
+    int num_ni_oxide;
     int num_total_oxide;
+    
     // --- KMC 核心算法的内部辅助函数 ---
 
     // **关键函数：计算并更新所有事件的倾向，同时构建 all_events 列表**
@@ -107,7 +113,9 @@ private:
     // affected_site_id: 刚刚发生事件的 Site 的 ID。
     double calculate_Si_site_random_walk_propensity(const Site& s) const;
     double calculate_Cr_site_random_walk_propensity(const Site& s) const;
+    double calculate_Ni_site_random_walk_propensity(const Site& s) const;
     double calculate_oxy_diffusion_propensity();
+    double calculate_oxi_prob();
     void update_affected_events(int affected_site_id);
 
     double get_uniform_random();      // 生成一个 [0.0, 1.0) 范围内的均匀随机实数
@@ -117,6 +125,7 @@ private:
     void print_status(); // 打印当前模拟时间、步数等状态信息
     void dump_sites(long long int step); // 将所有 Site 的当前坐标输出到文件，用于后续分析或可视化
     void write_oxide_csv();
+    void write_propensity_csv();
 };
 
 #endif // KMC_SIMULATOR_Hs
