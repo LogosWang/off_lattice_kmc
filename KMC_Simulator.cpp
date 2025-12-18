@@ -26,7 +26,7 @@ const int KMC_Simulator::SILIC=0;
 const int KMC_Simulator::NIK=3;
 const int KMC_Simulator::RANDDIFF=0;
 const int KMC_Simulator::TRACKDIFF=1;
-const double KMC_Simulator::DOSE=3.0;
+const double KMC_Simulator::DOSE=7.0;
 
 KMC_Simulator::KMC_Simulator(int num_sites_arg, double box_size_arg, unsigned int seed, double unit_jump_distance_arg, int CSVflag, double GB_A, double GB_B, double GB_C, double GB_D, int Diff_mod) : 
     num_sites(num_sites_arg),             // 粒子数量
@@ -362,7 +362,7 @@ double KMC_Simulator::calculate_Si_site_random_walk_propensity(const Site& s) co
     double exponent_term = effective_barrier / kb_T;
     double dis_to_GB=grain_boundary.get_GB_distance(s.x, s.y, s.z);
     // 最终计算倾向： v0 * exp(-exponent_term)
-    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*(1.0-0.1*DOSE*std::exp(-dis_to_GB/5e-5));
+    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*(1.0-std::exp(-dis_to_GB/5e-6))*std::exp(DOSE/5.0);
     propensity *= 1e-3; 
     // ms-1 unit
 
@@ -406,7 +406,7 @@ double KMC_Simulator::calculate_Cr_site_random_walk_propensity(const Site& s) co
     double exponent_term = effective_barrier / kb_T;
     double dis_to_GB=grain_boundary.get_GB_distance(s.x, s.y, s.z);
     // 最终计算倾向： v0 * exp(-exponent_term)
-    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term*(1.0+0.05*DOSE-0.05*DOSE*std::exp(-dis_to_GB/2e-5)));
+    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(-0.3*DOSE+0.3*DOSE*std::exp(-dis_to_GB/2e-5));
     propensity *= 1e-3; 
     // ms-1 unit
 
@@ -451,7 +451,7 @@ double KMC_Simulator::calculate_Ni_site_random_walk_propensity(const Site& s) co
     double exponent_term = effective_barrier / kb_T;
     double dis_to_GB=grain_boundary.get_GB_distance(s.x, s.y, s.z);
     // 最终计算倾向： v0 * exp(-exponent_term)
-    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term*(1.0-0.05*DOSE+0.05*DOSE*std::exp(-dis_to_GB/2e-5)));
+    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(0.3*DOSE-0.3*DOSE*std::exp(-dis_to_GB/2e-5));
     propensity *= 1e-3; 
     // ms-1 unit
 
@@ -466,7 +466,7 @@ double KMC_Simulator::calculate_Ni_site_random_walk_propensity(const Site& s) co
 
 double KMC_Simulator::calculate_oxi_prob(){
     double prob;
-    prob=1.0/(1.0+std::exp((num_cr_oxide-30.0)/4.0));
+    prob=1.0/(1.0+std::exp((num_cr_oxide-20.0)/2.0));
     return prob;
 }
 
