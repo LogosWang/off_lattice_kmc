@@ -49,10 +49,9 @@ private:
     static const int NIK;
     static const int RANDDIFF;
     static const int TRACKDIFF;
-    static const double DOSE;
     
-
-
+    
+    double DOSE;
     int CSVflag;
     double GB_A;
     double GB_B;
@@ -63,6 +62,7 @@ private:
     
     int num_sites;     // 粒子数量
     double box_size;   // 模拟盒子的尺寸
+    std::string output_dir;
     double unit_jump_distance;
     double jump_distance; // 随机游走事件的跳跃步长，作为模拟器的属性
 

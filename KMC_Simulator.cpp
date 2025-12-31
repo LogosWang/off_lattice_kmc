@@ -4,6 +4,8 @@
 #include <iostream>        // 用于调试输出和状态报告
 #include <sstream>
 #include <limits>
+#include <filesystem>
+namespace fs = std::filesystem;
 
 // --- 静态常量成员的定义和初始化 ---
 // 这些值应该放在 KMC_Simulator 类的成员函数之外
@@ -26,12 +28,13 @@ const int KMC_Simulator::SILIC=0;
 const int KMC_Simulator::NIK=3;
 const int KMC_Simulator::RANDDIFF=0;
 const int KMC_Simulator::TRACKDIFF=1;
-const double KMC_Simulator::DOSE=7.0;
+
 
 KMC_Simulator::KMC_Simulator(int num_sites_arg, double box_size_arg, unsigned int seed, double unit_jump_distance_arg, int CSVflag, double GB_A, double GB_B, double GB_C, double GB_D, int Diff_mod) : 
     num_sites(num_sites_arg),             // 粒子数量
     box_size(box_size_arg),               // 盒子大小
     unit_jump_distance(unit_jump_distance_arg),
+    DOSE(0.0),
     CSVflag(CSVflag),     
     GB_A(GB_A),
     GB_B(GB_B),
@@ -48,7 +51,8 @@ KMC_Simulator::KMC_Simulator(int num_sites_arg, double box_size_arg, unsigned in
     num_cr_oxide(0),
     num_ni_oxide(0),
     num_total_oxide(0),                        // 模拟开始时步数为 0
-    grain_boundary(GB_A, GB_B, GB_C, GB_D, box_size_arg) 
+    grain_boundary(GB_A, GB_B, GB_C, GB_D, box_size_arg),
+    output_dir("00") 
 {
     // 预留 `sites` 向量的空间，避免在添加 Site 时不必要的内存重新分配
     sites.reserve(num_sites); 
@@ -57,6 +61,7 @@ KMC_Simulator::KMC_Simulator(int num_sites_arg, double box_size_arg, unsigned in
     std::cout << "KMC Simulator initialized with " << num_sites << " sites, box size " << box_size 
               << ", and jump distance " << jump_distance << "." << std::endl;
     read_stress_field_from_csv("stress.csv");
+    output_dir=std::to_string(static_cast<int>(10.0*DOSE));
 }
 
 KMC_Simulator::~KMC_Simulator() {
@@ -85,7 +90,7 @@ void KMC_Simulator::initialize_sites() {
     print_status(); // 打印当前模拟状态
 }
 else {
-    initialize_sites_from_csv("sites3type.csv");
+    initialize_sites_from_csv("sites3type_more.csv");
 }
 }
 
@@ -267,7 +272,7 @@ double KMC_Simulator::calculate_adsorption_propensity() const {
             oxygen_count++;
         }
     }
-    if (oxygen_count >= 3000) { 
+    if (oxygen_count >= 30000) { 
         return 1.1e-12;
     }
 
@@ -406,7 +411,7 @@ double KMC_Simulator::calculate_Cr_site_random_walk_propensity(const Site& s) co
     double exponent_term = effective_barrier / kb_T;
     double dis_to_GB=grain_boundary.get_GB_distance(s.x, s.y, s.z);
     // 最终计算倾向： v0 * exp(-exponent_term)
-    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(-0.3*DOSE+0.3*DOSE*std::exp(-dis_to_GB/2e-5));
+    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(-0.3*DOSE+0.3*DOSE*std::exp(-dis_to_GB/2e-4));
     propensity *= 1e-3; 
     // ms-1 unit
 
@@ -451,7 +456,7 @@ double KMC_Simulator::calculate_Ni_site_random_walk_propensity(const Site& s) co
     double exponent_term = effective_barrier / kb_T;
     double dis_to_GB=grain_boundary.get_GB_distance(s.x, s.y, s.z);
     // 最终计算倾向： v0 * exp(-exponent_term)
-    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(0.3*DOSE-0.3*DOSE*std::exp(-dis_to_GB/2e-5));
+    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(0.3*DOSE-0.3*DOSE*std::exp(-dis_to_GB/2e-4));
     propensity *= 1e-3; 
     // ms-1 unit
 
@@ -466,7 +471,7 @@ double KMC_Simulator::calculate_Ni_site_random_walk_propensity(const Site& s) co
 
 double KMC_Simulator::calculate_oxi_prob(){
     double prob;
-    prob=1.0/(1.0+std::exp((num_cr_oxide-20.0)/2.0));
+    prob=1.0/(1.0+std::exp((num_cr_oxide-200.0)/10.0));
     return prob;
 }
 
@@ -825,7 +830,7 @@ void KMC_Simulator::print_status() {
 // --- 输出 Site 坐标到文件 ---
 // 将所有 Site 的当前三维坐标以 .xyz 格式写入文件，方便外部工具（如 VMD）进行可视化。
 void KMC_Simulator::dump_sites(long long int step) {
-    std::string filename = "sites_" + std::to_string(step) + ".xyz"; // 文件名包含 KMC 步数
+    std::string filename = output_dir+"/"+"sites_" + std::to_string(step) + ".xyz"; // 文件名包含 KMC 步数
     std::ofstream outfile(filename); // 创建并打开文件
 
     if (!outfile.is_open()) { // 检查文件是否成功打开
@@ -850,6 +855,9 @@ void KMC_Simulator::dump_sites(long long int step) {
         else if (s.type==OXYG){
         outfile << "O " << std::fixed << std::setprecision(6) 
                 << s.x << " " << s.y << " " << s.z << std::endl;}
+        else if (s.type==NIK){
+        outfile << "Ni " << std::fixed << std::setprecision(6) 
+                << s.x << " " << s.y << " " << s.z << std::endl;}
         
         // std::cout<<"writing"<<std::endl;
     }
@@ -858,7 +866,7 @@ void KMC_Simulator::dump_sites(long long int step) {
 }
 
 void KMC_Simulator::write_oxide_csv(){
-    const std::string filename = "oxidegrow.csv";
+    const std::string filename = output_dir+"/"+"oxidegrow.csv";
 
     // 以追加模式打开文件（不存在则创建）
     std::ofstream fout(filename, std::ios::app);
@@ -887,7 +895,7 @@ void KMC_Simulator::write_oxide_csv(){
 }
 
 void KMC_Simulator::write_propensity_csv(){
-    const std::string filename = "propensity"+std::to_string(current_time)+".csv";
+    const std::string filename = output_dir+"/"+"propensity"+std::to_string(current_time)+".csv";
 
     // 以追加模式打开文件（不存在则创建）
     std::ofstream fout(filename, std::ios::app);
@@ -919,6 +927,7 @@ void KMC_Simulator::run(double max_time, long long int max_steps) {
               << ", Maximum KMC Steps: " << max_steps << std::endl;
 
     // **首次构建事件列表和计算所有倾向**
+    fs::create_directories(output_dir);  // 目录不存在就创建（已存在也不会报错）
     calculate_all_propensities_and_events();
     dump_sites(0); // 输出初始构型
     write_propensity_csv();
@@ -977,11 +986,11 @@ void KMC_Simulator::run(double max_time, long long int max_steps) {
        // calculate_all_propensities_and_events(); // 目前继续全量重建事件列表
 
         // 每隔一定步数输出模拟状态和粒子构型
-        if (total_steps % 100000 == 0) { // 例如，每 1000 步输出一次
+        if (total_steps % 1000000 == 0) { // 例如，每 1000 步输出一次
             print_status();
             dump_sites(total_steps);
         }
-        if (total_steps % 10000000 == 0) { // 例如，每 1000 步输出一次
+        if (total_steps % 100000000 == 0) { // 例如，每 1000 步输出一次
            
             write_propensity_csv();
         }

@@ -1,11 +1,11 @@
 CXX = clang++
 
 # 定义编译器选项
-# -std=c++11：使用 C++11 标准
+# -std=c++17：使用 C++17 标准
 # -Wall：开启所有常见的警告
 # -O3：开启最高级别优化
 # -g：包含调试信息 (如果需要调试，可以加上；发布版本可以去掉)
-CXXFLAGS = -std=c++11 -Wall -O3 -g
+CXXFLAGS = -std=c++17 -Wall -O3 -g
 
 # 定义你的所有源文件
 SRCS = main.cpp KMC_Simulator.cpp Site.cpp Event.cpp StressPoint.cpp GB.cpp
