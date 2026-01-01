@@ -3,7 +3,7 @@
 #include <ctime>           // 用于获取当前时间，作为随机数生成器的种子，确保每次运行结果不同
 const char* KMC_SIM_CHECK = "KMC_Simulator class is visible.";
 
-int main() {
+int main(int argc, char** argv) {
     // --- 1. 定义模拟的基本参数 ---
     // 这些参数决定了你的模拟世界的规模和运行方式
     std::cout << KMC_SIM_CHECK << std::endl; // 你甚至可以尝试打印它
@@ -30,6 +30,18 @@ int main() {
     // --- 4. 初始化站点 ---
     // 调用 KMC_Simulator 的 initialize_sites 方法，将粒子随机放置在模拟盒子内。
     // 这会在模拟开始前设置好系统的初始状态。
+    
+    std::string input_file;
+for (int i = 1; i < argc; ++i) {
+    std::string a = argv[i];
+    if (a == "-i" && i + 1 < argc) {
+        input_file = argv[++i];
+    }
+}
+
+// 可选读入：没给 -i 就啥也不做
+simulator.read_input_file(input_file);
+    
     simulator.initialize_sites();
 
     // --- 5. 运行 KMC 模拟 ---

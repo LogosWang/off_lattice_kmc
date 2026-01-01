@@ -25,6 +25,7 @@ public:
     
     ~KMC_Simulator();
 
+    void read_input_file(const std::string& filename);
     void initialize_sites();
     void run(double max_time, long long int max_steps);
     bool initialize_sites_from_csv(const std::string& filename);

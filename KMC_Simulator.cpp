@@ -61,7 +61,7 @@ KMC_Simulator::KMC_Simulator(int num_sites_arg, double box_size_arg, unsigned in
     std::cout << "KMC Simulator initialized with " << num_sites << " sites, box size " << box_size 
               << ", and jump distance " << jump_distance << "." << std::endl;
     read_stress_field_from_csv("stress.csv");
-    output_dir=std::to_string(static_cast<int>(10.0*DOSE));
+    // output_dir=std::to_string(static_cast<int>(10.0*DOSE));
 }
 
 KMC_Simulator::~KMC_Simulator() {
@@ -70,6 +70,44 @@ KMC_Simulator::~KMC_Simulator() {
 double KMC_Simulator::get_uniform_random() {
     return distribution(generator); 
 }
+
+void KMC_Simulator::read_input_file(const std::string& filename)
+{
+    if (filename.empty()) return;  // 没指定 -i 就保持默认
+
+    std::ifstream fin(filename);
+    if (!fin.is_open()) {
+        std::cerr << "Warning: cannot open input file: " << filename
+                  << " (using default parameters)\n";
+        return;
+    }
+
+    std::string line;
+    while (std::getline(fin, line)) {
+        // 去注释
+        auto pos = line.find('#');
+        if (pos != std::string::npos) line = line.substr(0, pos);
+
+        std::istringstream iss(line);
+        std::string key;
+        if (!(iss >> key)) continue;
+
+        if (key == "dose") {
+            iss >> DOSE;                 // 覆盖默认 DOSE
+        } else if (key == "output_dir") {
+            iss >> output_dir;           // 覆盖默认 output_dir
+        } else {
+            // 最小改动：先忽略未知 key，避免影响你现有功能
+            // std::cerr << "Warning: unknown key: " << key << "\n";
+        }
+    }
+
+    // 目录确保存在（你已经实现过目录创建）
+    if (!output_dir.empty()) {
+        fs::create_directories(output_dir);
+    }
+}
+
 int KMC_Simulator::get_uniform_int(int min, int max) {
     // 每次调用时创建临时的分发器，确保每次都能正确处理不同的范围
     std::uniform_int_distribution<int> int_distribution(min, max);
@@ -411,7 +449,7 @@ double KMC_Simulator::calculate_Cr_site_random_walk_propensity(const Site& s) co
     double exponent_term = effective_barrier / kb_T;
     double dis_to_GB=grain_boundary.get_GB_distance(s.x, s.y, s.z);
     // 最终计算倾向： v0 * exp(-exponent_term)
-    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(-0.3*DOSE+0.3*DOSE*std::exp(-dis_to_GB/2e-4));
+    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(-0.3*DOSE+0.3*DOSE*std::exp(-dis_to_GB/5e-5));
     propensity *= 1e-3; 
     // ms-1 unit
 
@@ -456,7 +494,7 @@ double KMC_Simulator::calculate_Ni_site_random_walk_propensity(const Site& s) co
     double exponent_term = effective_barrier / kb_T;
     double dis_to_GB=grain_boundary.get_GB_distance(s.x, s.y, s.z);
     // 最终计算倾向： v0 * exp(-exponent_term)
-    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(0.3*DOSE-0.3*DOSE*std::exp(-dis_to_GB/2e-4));
+    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(0.3*DOSE-0.3*DOSE*std::exp(-dis_to_GB/5e-5));
     propensity *= 1e-3; 
     // ms-1 unit
 
@@ -471,7 +509,7 @@ double KMC_Simulator::calculate_Ni_site_random_walk_propensity(const Site& s) co
 
 double KMC_Simulator::calculate_oxi_prob(){
     double prob;
-    prob=1.0/(1.0+std::exp((num_cr_oxide-200.0)/10.0));
+    prob=1.0/(1.0+std::exp((num_cr_oxide-600.0)/10.0));
     return prob;
 }
 
