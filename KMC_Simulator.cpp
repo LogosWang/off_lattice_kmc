@@ -16,7 +16,7 @@ const double KMC_Simulator::MIGRATION_BARRIER_EV = 1.0; // eV (示例迁移能�
 const double KMC_Simulator::EV_TO_JOULE = 1.60218e-19; // J/eV (eV 到焦耳的转换因子)
 const double KMC_Simulator::ACTIVATION_VOLUME = 1.0e-28; // m^3 (示例活化体积，请查阅文献，通常为正值)
 const double KMC_Simulator::PRE_FACTOR_V0 = 1.0e13; // s^-1 (示例前因子，请查阅文献)
-const double KMC_Simulator::OXIDATION_THRESH = 5.0e-6; 
+const double KMC_Simulator::OXIDATION_THRESH = 2e-6; 
 const int KMC_Simulator::OXYGEN_DIFF=3;
 const int KMC_Simulator::SILI_DIFF=1;
 const int KMC_Simulator::CROM_DIFF=4;
@@ -405,7 +405,7 @@ double KMC_Simulator::calculate_Si_site_random_walk_propensity(const Site& s) co
     double exponent_term = effective_barrier / kb_T;
     double dis_to_GB=grain_boundary.get_GB_distance(s.x, s.y, s.z);
     // 最终计算倾向： v0 * exp(-exponent_term)
-    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*(1.0-std::exp(-dis_to_GB/5e-6))*std::exp(DOSE/5.0);
+    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*(1.0-std::exp(-dis_to_GB/5e-5))*std::exp(DOSE/3.0);
     propensity *= 1e-3; 
     // ms-1 unit
 
@@ -449,7 +449,7 @@ double KMC_Simulator::calculate_Cr_site_random_walk_propensity(const Site& s) co
     double exponent_term = effective_barrier / kb_T;
     double dis_to_GB=grain_boundary.get_GB_distance(s.x, s.y, s.z);
     // 最终计算倾向： v0 * exp(-exponent_term)
-    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(-0.3*DOSE+0.3*DOSE*std::exp(-dis_to_GB/5e-5));
+    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(0.2*DOSE/(1+std::exp((dis_to_GB-2e-5)/2e-5)));
     propensity *= 1e-3; 
     // ms-1 unit
 
@@ -494,7 +494,7 @@ double KMC_Simulator::calculate_Ni_site_random_walk_propensity(const Site& s) co
     double exponent_term = effective_barrier / kb_T;
     double dis_to_GB=grain_boundary.get_GB_distance(s.x, s.y, s.z);
     // 最终计算倾向： v0 * exp(-exponent_term)
-    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(0.3*DOSE-0.3*DOSE*std::exp(-dis_to_GB/5e-5));
+    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(0.3*DOSE/(1+std::exp(-(dis_to_GB-2e-5)/2e-5)));
     propensity *= 1e-3; 
     // ms-1 unit
 
@@ -509,7 +509,7 @@ double KMC_Simulator::calculate_Ni_site_random_walk_propensity(const Site& s) co
 
 double KMC_Simulator::calculate_oxi_prob(){
     double prob;
-    prob=1.0/(1.0+std::exp((num_cr_oxide-600.0)/10.0));
+    prob=0.05/(1.0+std::exp((num_cr_oxide-250.0)/3.0));
     return prob;
 }
 
@@ -903,8 +903,46 @@ void KMC_Simulator::dump_sites(long long int step) {
     outfile.close(); // 关闭文件
 }
 
+void KMC_Simulator::write_sites_csv() {
+    std::string filename = output_dir+"/"+"sitesresult" + output_dir + ".csv"; // 文件名包含 KMC 步数
+    std::ofstream outfile(filename); // 创建并打开文件
+
+    if (!outfile.is_open()) { // 检查文件是否成功打开
+        std::cerr << "Error: Could not open file " << filename << " for dumping sites." << std::endl;
+        return;
+    }
+
+    // // .xyz 文件格式要求：
+    // outfile << sites.size() << std::endl; // 第一行：原子数量
+    // outfile << "KMC Step: " << step << ", Time: " << std::fixed << std::setprecision(6) << current_time << std::endl; // 第二行：注释
+
+    // 写入每个 Site 的数据
+    for (const auto& s : sites) {
+        if (s.status==0){
+        if (s.type==SILIC){
+        outfile << "Si," << std::fixed << std::setprecision(6) 
+                << s.x << "," << s.y << "," << s.z << std::endl;
+        }
+        else if (s.type==CROM){
+        outfile << "Cr," << std::fixed << std::setprecision(6) 
+                << s.x << "," << s.y << "," << s.z << std::endl;
+        }
+        else if (s.type==OXYG){
+        outfile << "O," << std::fixed << std::setprecision(6) 
+                << s.x << "," << s.y << "," << s.z << std::endl;}
+        else if (s.type==NIK){
+        outfile << "Ni," << std::fixed << std::setprecision(6) 
+                << s.x << "," << s.y << "," << s.z << std::endl;}
+        
+        }// std::cout<<"writing"<<std::endl;
+    }
+
+    outfile.close(); // 关闭文件
+}
+
+
 void KMC_Simulator::write_oxide_csv(){
-    const std::string filename = output_dir+"/"+"oxidegrow.csv";
+    const std::string filename = output_dir+"/"+"oxidegrow"+output_dir+".csv";
 
     // 以追加模式打开文件（不存在则创建）
     std::ofstream fout(filename, std::ios::app);
@@ -1003,7 +1041,7 @@ void KMC_Simulator::run(double max_time, long long int max_steps) {
         }
 
         // **执行选中的事件**
-        jump_distance=unit_jump_distance*std::sqrt(dt*all_events[chosen_event_idx].propensity);
+        jump_distance=unit_jump_distance;
         execute_event(chosen_event_idx); 
         total_steps++; // 增加已完成的 KMC 步数
 
@@ -1027,6 +1065,7 @@ void KMC_Simulator::run(double max_time, long long int max_steps) {
         if (total_steps % 1000000 == 0) { // 例如，每 1000 步输出一次
             print_status();
             dump_sites(total_steps);
+            write_sites_csv();
         }
         if (total_steps % 100000000 == 0) { // 例如，每 1000 步输出一次
            
@@ -1037,4 +1076,5 @@ void KMC_Simulator::run(double max_time, long long int max_steps) {
     std::cout << "\nSimulation finished. Final status:" << std::endl;
     print_status();
     dump_sites(total_steps); 
+    write_sites_csv();
 }

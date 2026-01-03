@@ -126,6 +126,7 @@ private:
     void print_status(); // 打印当前模拟时间、步数等状态信息
     void dump_sites(long long int step); // 将所有 Site 的当前坐标输出到文件，用于后续分析或可视化
     void write_oxide_csv();
+    void write_sites_csv();
     void write_propensity_csv();
 };
 
