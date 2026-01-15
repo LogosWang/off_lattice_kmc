@@ -84,6 +84,7 @@ private:
     std::unordered_map<int, std::vector<int>> site_to_event_indices; 
     double current_time;           // 模拟已经进行的总时间
     long long total_steps;         // 模拟已经完成的 KMC 步骤总数
+    double rate_scale;
     double oxi_prob;
     int num_si_oxide;
     int num_cr_oxide;

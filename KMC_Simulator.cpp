@@ -46,6 +46,7 @@ KMC_Simulator::KMC_Simulator(int num_sites_arg, double box_size_arg, unsigned in
     distribution(0.0, 1.0),               // 初始化均匀分布器，范围 [0.0, 1.0)
     current_time(0.0),                    // 模拟开始时时间为 0
     total_steps(0),
+    rate_scale(0.0001),
     oxi_prob(1.0),
     num_si_oxide(0),
     num_cr_oxide(0),
@@ -368,6 +369,7 @@ void KMC_Simulator::calculate_all_propensities_and_events() {
         }
          
     }
+    // rate_scale = std::accumulate(event_propensities_for_selection.begin(), event_propensities_for_selection.end(), 0.0);
 }
 double KMC_Simulator::calculate_oxy_diffusion_propensity(){
     return 5e2;
@@ -509,8 +511,10 @@ double KMC_Simulator::calculate_Ni_site_random_walk_propensity(const Site& s) co
 
 double KMC_Simulator::calculate_oxi_prob(){
     double prob;
-    prob=0.05/(1.0+std::exp((num_cr_oxide-250.0)/3.0));
-    return prob;
+    prob=0.02/(1.0+std::exp((num_cr_oxide-300.0)/30.0));
+    double total_propensity = std::accumulate(event_propensities_for_selection.begin(), event_propensities_for_selection.end(), 0.0);
+    double p = 1.0-std::pow(1-prob,rate_scale/total_propensity);
+    return p;
 }
 
 int KMC_Simulator::select_event_index() {
@@ -1005,6 +1009,8 @@ void KMC_Simulator::run(double max_time, long long int max_steps) {
     // **首次构建事件列表和计算所有倾向**
     fs::create_directories(output_dir);  // 目录不存在就创建（已存在也不会报错）
     calculate_all_propensities_and_events();
+    rate_scale = 1e7;
+    // rate_scale = std::accumulate(event_propensities_for_selection.begin(), event_propensities_for_selection.end(), 0.0);
     dump_sites(0); // 输出初始构型
     write_propensity_csv();
 
