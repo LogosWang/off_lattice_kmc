@@ -116,8 +116,11 @@ private:
     double calculate_Si_site_random_walk_propensity(const Site& s) const;
     double calculate_Cr_site_random_walk_propensity(const Site& s) const;
     double calculate_Ni_site_random_walk_propensity(const Site& s) const;
-    double calculate_oxy_diffusion_propensity();
+    double calculate_oxy_diffusion_propensity(double x,double y,double z);
     double calculate_oxi_prob();
+    double calculate_jump_scalar(double x,double y,double z) const;
+    double calculate_prop_scalar(double x,double y,double z) const;
+    double normal_sample(double mean, double stddev);
     void update_affected_events(int affected_site_id);
 
     double get_uniform_random();      // 生成一个 [0.0, 1.0) 范围内的均匀随机实数

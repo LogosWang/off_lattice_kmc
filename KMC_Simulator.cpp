@@ -16,7 +16,7 @@ const double KMC_Simulator::MIGRATION_BARRIER_EV = 1.0; // eV (示例迁移能�
 const double KMC_Simulator::EV_TO_JOULE = 1.60218e-19; // J/eV (eV 到焦耳的转换因子)
 const double KMC_Simulator::ACTIVATION_VOLUME = 1.0e-28; // m^3 (示例活化体积，请查阅文献，通常为正值)
 const double KMC_Simulator::PRE_FACTOR_V0 = 1.0e13; // s^-1 (示例前因子，请查阅文献)
-const double KMC_Simulator::OXIDATION_THRESH = 2e-6; 
+const double KMC_Simulator::OXIDATION_THRESH = 2.5e-7; 
 const int KMC_Simulator::OXYGEN_DIFF=3;
 const int KMC_Simulator::SILI_DIFF=1;
 const int KMC_Simulator::CROM_DIFF=4;
@@ -371,8 +371,8 @@ void KMC_Simulator::calculate_all_propensities_and_events() {
     }
     // rate_scale = std::accumulate(event_propensities_for_selection.begin(), event_propensities_for_selection.end(), 0.0);
 }
-double KMC_Simulator::calculate_oxy_diffusion_propensity(){
-    return 5e2;
+double KMC_Simulator::calculate_oxy_diffusion_propensity(double x,double y,double z){
+    return 5e2*calculate_prop_scalar(x,y,z);
 }
 
 double KMC_Simulator::calculate_Si_site_random_walk_propensity(const Site& s) const {
@@ -407,9 +407,10 @@ double KMC_Simulator::calculate_Si_site_random_walk_propensity(const Site& s) co
     double exponent_term = effective_barrier / kb_T;
     double dis_to_GB=grain_boundary.get_GB_distance(s.x, s.y, s.z);
     // 最终计算倾向： v0 * exp(-exponent_term)
-    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*(1.0-std::exp(-dis_to_GB/5e-5))*std::exp(DOSE/3.0);
+    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(0.3*DOSE/(1+std::exp(-(dis_to_GB-2e-5)/1e-5)));
     propensity *= 1e-3; 
     // ms-1 unit
+    propensity *= calculate_prop_scalar(s.x, s.y, s.z);
 
     // 4. 确保计算出的倾向为正数，防止数学错误或不合理结果
     if (propensity <= 0.0) {
@@ -451,9 +452,10 @@ double KMC_Simulator::calculate_Cr_site_random_walk_propensity(const Site& s) co
     double exponent_term = effective_barrier / kb_T;
     double dis_to_GB=grain_boundary.get_GB_distance(s.x, s.y, s.z);
     // 最终计算倾向： v0 * exp(-exponent_term)
-    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(0.2*DOSE/(1+std::exp((dis_to_GB-2e-5)/2e-5)));
+    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(0.2*DOSE/(1+std::exp((dis_to_GB-2e-5)/1e-5)));
     propensity *= 1e-3; 
     // ms-1 unit
+    propensity *= calculate_prop_scalar(s.x, s.y, s.z);
 
     // 4. 确保计算出的倾向为正数，防止数学错误或不合理结果
     if (propensity <= 0.0) {
@@ -496,10 +498,10 @@ double KMC_Simulator::calculate_Ni_site_random_walk_propensity(const Site& s) co
     double exponent_term = effective_barrier / kb_T;
     double dis_to_GB=grain_boundary.get_GB_distance(s.x, s.y, s.z);
     // 最终计算倾向： v0 * exp(-exponent_term)
-    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(0.3*DOSE/(1+std::exp(-(dis_to_GB-2e-5)/2e-5)));
-    propensity *= 1e-3; 
-    // ms-1 unit
-
+    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(0.3*DOSE/(1+std::exp(-(dis_to_GB-1e-5)/2e-5)));
+    propensity *= 1e-3; // ms-1 unit
+    propensity *= calculate_prop_scalar(s.x, s.y, s.z);
+   
     // 4. 确保计算出的倾向为正数，防止数学错误或不合理结果
     if (propensity <= 0.0) {
         propensity = 1e-30; // 设置一个非常小的正值，避免零或负倾向
@@ -511,10 +513,28 @@ double KMC_Simulator::calculate_Ni_site_random_walk_propensity(const Site& s) co
 
 double KMC_Simulator::calculate_oxi_prob(){
     double prob;
-    prob=0.02/(1.0+std::exp((num_cr_oxide-300.0)/30.0));
+    prob=0.03/(1.0+std::exp((num_cr_oxide-10.0)/1.0));
     double total_propensity = std::accumulate(event_propensities_for_selection.begin(), event_propensities_for_selection.end(), 0.0);
     double p = 1.0-std::pow(1-prob,rate_scale/total_propensity);
     return p;
+}
+
+double KMC_Simulator::calculate_jump_scalar(double x,double y,double z) const{
+    double dis_to_GB=grain_boundary.get_GB_distance(x,y,z);
+    double scalar=3.0+(0.02-3.0)*(1.0/(1.0+std::exp((dis_to_GB-2e-5)/1e-5)));
+    return scalar;
+}
+
+double KMC_Simulator::calculate_prop_scalar(double x,double y,double z) const{
+    double scalar=calculate_jump_scalar(x,y,z);
+    return 1.0/(scalar*scalar);
+}
+
+double KMC_Simulator::normal_sample(double mean, double stddev)
+{
+    static thread_local std::mt19937_64 rng{std::random_device{}()};
+    std::normal_distribution<double> dist(mean, stddev);
+    return dist(rng);
 }
 
 int KMC_Simulator::select_event_index() {
@@ -572,8 +592,8 @@ void KMC_Simulator::execute_event(int event_index) {
                 direction[1]=ry/leng;
                 direction[2]=rz/leng;
             }
-            
-            double displacement = jump_distance;
+            double adjusted_jump_distance = jump_distance*calculate_jump_scalar(target_site.x,target_site.y,target_site.z);
+            double displacement = normal_sample(adjusted_jump_distance,0.1*adjusted_jump_distance);
 
             // 调用 Site 对象的 `move` 方法来更新其位置
             target_site.move(direction, displacement);
@@ -627,7 +647,8 @@ void KMC_Simulator::execute_event(int event_index) {
                 direction[2]=rz/leng;
             }
             
-            double displacement = jump_distance;
+            double adjusted_jump_distance = jump_distance*calculate_jump_scalar(target_site.x,target_site.y,target_site.z);
+            double displacement = normal_sample(adjusted_jump_distance,0.1*adjusted_jump_distance);
 
             // 调用 Site 对象的 `move` 方法来更新其位置
             target_site.move(direction, displacement);
@@ -683,7 +704,8 @@ void KMC_Simulator::execute_event(int event_index) {
                 direction[2]=rz/leng;
             }
             
-            double displacement = jump_distance;
+            double adjusted_jump_distance = jump_distance*calculate_jump_scalar(target_site.x,target_site.y,target_site.z);
+            double displacement = normal_sample(adjusted_jump_distance,0.1*adjusted_jump_distance);
 
             // 调用 Site 对象的 `move` 方法来更新其位置
             target_site.move(direction, displacement);
@@ -736,9 +758,9 @@ void KMC_Simulator::execute_event(int event_index) {
             
             // 将新 Site 加入到 sites 列表中
             sites.push_back(new_oxygen);
-            Event oxy_diff_event(OXYGEN_DIFF, calculate_oxy_diffusion_propensity(),new_oxygen.id);
+            Event oxy_diff_event(OXYGEN_DIFF, calculate_oxy_diffusion_propensity(new_oxygen.x,new_oxygen.y,new_oxygen.z),new_oxygen.id);
             all_events.push_back(oxy_diff_event);
-            event_propensities_for_selection.push_back(calculate_oxy_diffusion_propensity());
+            event_propensities_for_selection.push_back(calculate_oxy_diffusion_propensity(new_oxygen.x,new_oxygen.y,new_oxygen.z));
             all_events[event_index].propensity=calculate_adsorption_propensity();
             event_propensities_for_selection[event_index]=all_events[event_index].propensity;
             int current_event_index=all_events.size()-1;
@@ -756,8 +778,8 @@ void KMC_Simulator::execute_event(int event_index) {
             Site& target_site = const_cast<Site&>(sites[chosen_event.site_id]);
             double xm = 2.0*get_uniform_random()-1;
             double zm = 2.0*get_uniform_random()-1;
-            target_site.x += 10.0*xm*jump_distance;
-            target_site.z += 10.0*zm*jump_distance;
+            target_site.x += 10.0*xm*jump_distance*calculate_jump_scalar(target_site.x,target_site.y,target_site.z);
+            target_site.z += 10.0*zm*jump_distance*calculate_jump_scalar(target_site.x,target_site.y,target_site.z);
             target_site.y = -(GB_A*target_site.x+GB_C*target_site.z+GB_D)/GB_B;
             grain_boundary.apply_pbc_and_constrain(target_site);
             // std::cout<<"oxygen move, site id: "<<target_site.id<<" "<<jump_distance<<std::endl;
@@ -1009,7 +1031,7 @@ void KMC_Simulator::run(double max_time, long long int max_steps) {
     // **首次构建事件列表和计算所有倾向**
     fs::create_directories(output_dir);  // 目录不存在就创建（已存在也不会报错）
     calculate_all_propensities_and_events();
-    rate_scale = 1e7;
+    rate_scale = 1e8;
     // rate_scale = std::accumulate(event_propensities_for_selection.begin(), event_propensities_for_selection.end(), 0.0);
     dump_sites(0); // 输出初始构型
     write_propensity_csv();
@@ -1074,6 +1096,10 @@ void KMC_Simulator::run(double max_time, long long int max_steps) {
             write_sites_csv();
         }
         if (total_steps % 100000000 == 0) { // 例如，每 1000 步输出一次
+           
+            write_propensity_csv();
+        }
+        if (total_steps == 1000000) { 
            
             write_propensity_csv();
         }

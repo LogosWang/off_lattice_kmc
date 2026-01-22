@@ -9,8 +9,8 @@ int main(int argc, char** argv) {
     std::cout << KMC_SIM_CHECK << std::endl; // 你甚至可以尝试打印它
     int num_sites = 1000;      // 模拟中的粒子（Site）总数量。你可以根据需要调整。
     double box_size = 1e-3;        // 模拟盒子的边长。假设是一个边长为 10.0 单位的立方体。
-    double max_sim_time = 8.0;  // 模拟将运行的最大总时间。当模拟时间达到这个值时，程序会停止。
-    long long int max_sim_steps = 300000000;    
+    double max_sim_time = 10.0;  // 模拟将运行的最大总时间。当模拟时间达到这个值时，程序会停止。
+    long long int max_sim_steps = 30000000000;    
     double jump_distance = 5e-6; 
     int CSVflag=1;
     // --- 2. 设置随机数生成器的种子 ---
