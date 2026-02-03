@@ -303,7 +303,7 @@ int KMC_Simulator::find_closest_Non_Oxy_id(double px, double py, double pz) cons
 }
 
 double KMC_Simulator::calculate_adsorption_propensity() const {
-    const double ADSORPTION_RATE_PER_SECOND = 1.0e7; 
+    const double ADSORPTION_RATE_PER_SECOND = 1.0e9; 
 
     int oxygen_count = 0;
     for (const auto& s : sites) {
@@ -311,7 +311,7 @@ double KMC_Simulator::calculate_adsorption_propensity() const {
             oxygen_count++;
         }
     }
-    if (oxygen_count >= 30000) { 
+    if (oxygen_count >= 3000) { 
         return 1.1e-12;
     }
 
@@ -407,7 +407,7 @@ double KMC_Simulator::calculate_Si_site_random_walk_propensity(const Site& s) co
     double exponent_term = effective_barrier / kb_T;
     double dis_to_GB=grain_boundary.get_GB_distance(s.x, s.y, s.z);
     // 最终计算倾向： v0 * exp(-exponent_term)
-    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(0.3*DOSE/(1+std::exp(-(dis_to_GB-2e-5)/1e-5)));
+    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(0.3*DOSE/(1+std::exp(-(dis_to_GB-5e-6)/1e-6)));
     propensity *= 1e-3; 
     // ms-1 unit
     propensity *= calculate_prop_scalar(s.x, s.y, s.z);
@@ -452,7 +452,7 @@ double KMC_Simulator::calculate_Cr_site_random_walk_propensity(const Site& s) co
     double exponent_term = effective_barrier / kb_T;
     double dis_to_GB=grain_boundary.get_GB_distance(s.x, s.y, s.z);
     // 最终计算倾向： v0 * exp(-exponent_term)
-    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(0.2*DOSE/(1+std::exp((dis_to_GB-2e-5)/1e-5)));
+    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(0.2*DOSE/(1+std::exp((dis_to_GB-5e-6)/1e-6)));
     propensity *= 1e-3; 
     // ms-1 unit
     propensity *= calculate_prop_scalar(s.x, s.y, s.z);
@@ -498,7 +498,7 @@ double KMC_Simulator::calculate_Ni_site_random_walk_propensity(const Site& s) co
     double exponent_term = effective_barrier / kb_T;
     double dis_to_GB=grain_boundary.get_GB_distance(s.x, s.y, s.z);
     // 最终计算倾向： v0 * exp(-exponent_term)
-    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(0.3*DOSE/(1+std::exp(-(dis_to_GB-1e-5)/2e-5)));
+    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(0.3*DOSE/(1+std::exp(-(dis_to_GB-5e-6)/1e-6)));
     propensity *= 1e-3; // ms-1 unit
     propensity *= calculate_prop_scalar(s.x, s.y, s.z);
    
@@ -513,7 +513,7 @@ double KMC_Simulator::calculate_Ni_site_random_walk_propensity(const Site& s) co
 
 double KMC_Simulator::calculate_oxi_prob(){
     double prob;
-    prob=0.03/(1.0+std::exp((num_cr_oxide-10.0)/1.0));
+    prob=0.005/(1.0+std::exp((num_cr_oxide-10.0)/1.0));
     double total_propensity = std::accumulate(event_propensities_for_selection.begin(), event_propensities_for_selection.end(), 0.0);
     double p = 1.0-std::pow(1-prob,rate_scale/total_propensity);
     return p;
@@ -521,13 +521,20 @@ double KMC_Simulator::calculate_oxi_prob(){
 
 double KMC_Simulator::calculate_jump_scalar(double x,double y,double z) const{
     double dis_to_GB=grain_boundary.get_GB_distance(x,y,z);
-    double scalar=3.0+(0.02-3.0)*(1.0/(1.0+std::exp((dis_to_GB-2e-5)/1e-5)));
+    double scalar;
+    if (dis_to_GB<3e-5){
+        scalar=1.0*std::pow(10.0,(1.0-2.0)*(1.0/(1.0+std::exp((dis_to_GB-3e-5)/5e-6))));
+    }
+    else {
+        scalar=1.0*std::pow(10.0,(1.0-2.0)*(1.0/(1.0+std::exp((dis_to_GB-3e-5)/1e-4))));
+    }
     return scalar;
 }
 
 double KMC_Simulator::calculate_prop_scalar(double x,double y,double z) const{
     double scalar=calculate_jump_scalar(x,y,z);
-    return 1.0/(scalar*scalar);
+    double p=1.0/(scalar*scalar);
+    return p;
 }
 
 double KMC_Simulator::normal_sample(double mean, double stddev)
@@ -535,6 +542,7 @@ double KMC_Simulator::normal_sample(double mean, double stddev)
     static thread_local std::mt19937_64 rng{std::random_device{}()};
     std::normal_distribution<double> dist(mean, stddev);
     return dist(rng);
+    // return mean;
 }
 
 int KMC_Simulator::select_event_index() {
@@ -579,21 +587,24 @@ void KMC_Simulator::execute_event(int event_index) {
             Site& target_site = const_cast<Site&>(sites[chosen_event.site_id]); 
             int closest_sp_id = find_closest_stress_point_id(target_site.x, target_site.y, target_site.z);
             std::vector<double> direction(3);
+            double displacement;
             if (Diff_mod==TRACKDIFF){
                 direction=stress_field_data[closest_sp_id].tr_grad;
+                double displacement = jump_distance;
             }
             else if (Diff_mod==RANDDIFF)
             {
-                double rx = 2.0*get_uniform_random()-1;
-                double ry = 2.0*get_uniform_random()-1;
-                double rz = 2.0*get_uniform_random()-1;
+                double adjusted_jump_distance = jump_distance*calculate_jump_scalar(target_site.x,target_site.y,target_site.z);
+                double rx = normal_sample(0.0,adjusted_jump_distance);
+                double ry = normal_sample(0.0,adjusted_jump_distance);
+                double rz = normal_sample(0.0,adjusted_jump_distance);
                 double leng = std::sqrt(rx*rx+ry*ry+rz*rz);
                 direction[0]=rx/leng;
                 direction[1]=ry/leng;
                 direction[2]=rz/leng;
+                displacement = leng;
             }
-            double adjusted_jump_distance = jump_distance*calculate_jump_scalar(target_site.x,target_site.y,target_site.z);
-            double displacement = normal_sample(adjusted_jump_distance,0.1*adjusted_jump_distance);
+            
 
             // 调用 Site 对象的 `move` 方法来更新其位置
             target_site.move(direction, displacement);
@@ -633,23 +644,23 @@ void KMC_Simulator::execute_event(int event_index) {
             Site& target_site = const_cast<Site&>(sites[chosen_event.site_id]); 
             int closest_sp_id = find_closest_stress_point_id(target_site.x, target_site.y, target_site.z);
             std::vector<double> direction(3);
+            double displacement;
             if (Diff_mod==TRACKDIFF){
                 direction=stress_field_data[closest_sp_id].tr_grad;
+                double displacement = jump_distance;
             }
             else if (Diff_mod==RANDDIFF)
             {
-                double rx = 2.0*get_uniform_random()-1;
-                double ry = 2.0*get_uniform_random()-1;
-                double rz = 2.0*get_uniform_random()-1;
+                double adjusted_jump_distance = jump_distance*calculate_jump_scalar(target_site.x,target_site.y,target_site.z);
+                double rx = normal_sample(0.0,adjusted_jump_distance);
+                double ry = normal_sample(0.0,adjusted_jump_distance);
+                double rz = normal_sample(0.0,adjusted_jump_distance);
                 double leng = std::sqrt(rx*rx+ry*ry+rz*rz);
                 direction[0]=rx/leng;
                 direction[1]=ry/leng;
                 direction[2]=rz/leng;
+                displacement = leng;
             }
-            
-            double adjusted_jump_distance = jump_distance*calculate_jump_scalar(target_site.x,target_site.y,target_site.z);
-            double displacement = normal_sample(adjusted_jump_distance,0.1*adjusted_jump_distance);
-
             // 调用 Site 对象的 `move` 方法来更新其位置
             target_site.move(direction, displacement);
             apply_pbc(target_site); 
@@ -690,23 +701,23 @@ void KMC_Simulator::execute_event(int event_index) {
             Site& target_site = const_cast<Site&>(sites[chosen_event.site_id]); 
             int closest_sp_id = find_closest_stress_point_id(target_site.x, target_site.y, target_site.z);
             std::vector<double> direction(3);
+            double displacement;
             if (Diff_mod==TRACKDIFF){
                 direction=stress_field_data[closest_sp_id].tr_grad;
+                double displacement = jump_distance;
             }
             else if (Diff_mod==RANDDIFF)
             {
-                double rx = 2.0*get_uniform_random()-1;
-                double ry = 2.0*get_uniform_random()-1;
-                double rz = 2.0*get_uniform_random()-1;
+                double adjusted_jump_distance = jump_distance*calculate_jump_scalar(target_site.x,target_site.y,target_site.z);
+                double rx = normal_sample(0.0,adjusted_jump_distance);
+                double ry = normal_sample(0.0,adjusted_jump_distance);
+                double rz = normal_sample(0.0,adjusted_jump_distance);
                 double leng = std::sqrt(rx*rx+ry*ry+rz*rz);
                 direction[0]=rx/leng;
                 direction[1]=ry/leng;
                 direction[2]=rz/leng;
+                displacement = leng;
             }
-            
-            double adjusted_jump_distance = jump_distance*calculate_jump_scalar(target_site.x,target_site.y,target_site.z);
-            double displacement = normal_sample(adjusted_jump_distance,0.1*adjusted_jump_distance);
-
             // 调用 Site 对象的 `move` 方法来更新其位置
             target_site.move(direction, displacement);
             apply_pbc(target_site); 
@@ -1031,7 +1042,7 @@ void KMC_Simulator::run(double max_time, long long int max_steps) {
     // **首次构建事件列表和计算所有倾向**
     fs::create_directories(output_dir);  // 目录不存在就创建（已存在也不会报错）
     calculate_all_propensities_and_events();
-    rate_scale = 1e8;
+    rate_scale = 2e8;
     // rate_scale = std::accumulate(event_propensities_for_selection.begin(), event_propensities_for_selection.end(), 0.0);
     dump_sites(0); // 输出初始构型
     write_propensity_csv();
