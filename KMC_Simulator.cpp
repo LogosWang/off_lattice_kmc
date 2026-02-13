@@ -404,10 +404,12 @@ double KMC_Simulator::calculate_Si_site_random_walk_propensity(const Site& s) co
     double kb_T = KB * TEMPERATURE;
 
     // 计算完整的指数项： effective_barrier / (kB * T)
-    double exponent_term = effective_barrier / kb_T;
+    // double exponent_term = effective_barrier / kb_T;
     double dis_to_GB=grain_boundary.get_GB_distance(s.x, s.y, s.z);
+    double effective_chemical_potential=kb_T*DOSE*0.3*std::log(1/10.0)*std::exp(-dis_to_GB/5e-6);
+    double exponent_term = (effective_barrier - effective_chemical_potential)/ kb_T;
     // 最终计算倾向： v0 * exp(-exponent_term)
-    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(0.4*DOSE/(1+std::exp(-(dis_to_GB-8e-6)/2e-6)));
+    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term);
     propensity *= 1e-3; 
     // ms-1 unit
     propensity *= calculate_prop_scalar(s.x, s.y, s.z);
@@ -449,10 +451,12 @@ double KMC_Simulator::calculate_Cr_site_random_walk_propensity(const Site& s) co
     double kb_T = KB * TEMPERATURE;
 
     // 计算完整的指数项： effective_barrier / (kB * T)
-    double exponent_term = effective_barrier / kb_T;
+   
     double dis_to_GB=grain_boundary.get_GB_distance(s.x, s.y, s.z);
+    double effective_chemical_potential=kb_T*DOSE*0.3*std::log(10.0)*std::exp(-dis_to_GB/5e-6);
+    double exponent_term = (effective_barrier - effective_chemical_potential)/ kb_T;
     // 最终计算倾向： v0 * exp(-exponent_term)
-    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(0.3*DOSE/(1+std::exp((dis_to_GB-8e-6)/2e-6)));
+    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term);
     propensity *= 1e-3; 
     // ms-1 unit
     propensity *= calculate_prop_scalar(s.x, s.y, s.z);
@@ -495,10 +499,12 @@ double KMC_Simulator::calculate_Ni_site_random_walk_propensity(const Site& s) co
     double kb_T = KB * TEMPERATURE;
 
     // 计算完整的指数项： effective_barrier / (kB * T)
-    double exponent_term = effective_barrier / kb_T;
+    // double exponent_term = effective_barrier / kb_T;
     double dis_to_GB=grain_boundary.get_GB_distance(s.x, s.y, s.z);
+    double effective_chemical_potential=kb_T*DOSE*0.3*std::log(1/10.0)*std::exp(-dis_to_GB/5e-6);
+    double exponent_term = (effective_barrier - effective_chemical_potential)/ kb_T;
     // 最终计算倾向： v0 * exp(-exponent_term)
-    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term)*std::exp(0.3*DOSE/(1+std::exp(-(dis_to_GB-8e-6)/2e-6)));
+    double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term);
     propensity *= 1e-3; // ms-1 unit
     propensity *= calculate_prop_scalar(s.x, s.y, s.z);
    
