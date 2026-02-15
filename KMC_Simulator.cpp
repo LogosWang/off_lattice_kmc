@@ -406,7 +406,7 @@ double KMC_Simulator::calculate_Si_site_random_walk_propensity(const Site& s) co
     // 计算完整的指数项： effective_barrier / (kB * T)
     // double exponent_term = effective_barrier / kb_T;
     double dis_to_GB=grain_boundary.get_GB_distance(s.x, s.y, s.z);
-    double effective_chemical_potential=kb_T*DOSE*0.3*std::log(1/10.0)*std::exp(-dis_to_GB/5e-6);
+    double effective_chemical_potential=kb_T*DOSE*0.15*std::log(1/10.0)*std::exp(-dis_to_GB/5e-6);
     double exponent_term = (effective_barrier - effective_chemical_potential)/ kb_T;
     // 最终计算倾向： v0 * exp(-exponent_term)
     double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term);
@@ -453,7 +453,7 @@ double KMC_Simulator::calculate_Cr_site_random_walk_propensity(const Site& s) co
     // 计算完整的指数项： effective_barrier / (kB * T)
    
     double dis_to_GB=grain_boundary.get_GB_distance(s.x, s.y, s.z);
-    double effective_chemical_potential=kb_T*DOSE*0.3*std::log(10.0)*std::exp(-dis_to_GB/5e-6);
+    double effective_chemical_potential=kb_T*DOSE*0.15*std::log(10.0)*std::exp(-dis_to_GB/5e-6);
     double exponent_term = (effective_barrier - effective_chemical_potential)/ kb_T;
     // 最终计算倾向： v0 * exp(-exponent_term)
     double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term);
@@ -501,7 +501,7 @@ double KMC_Simulator::calculate_Ni_site_random_walk_propensity(const Site& s) co
     // 计算完整的指数项： effective_barrier / (kB * T)
     // double exponent_term = effective_barrier / kb_T;
     double dis_to_GB=grain_boundary.get_GB_distance(s.x, s.y, s.z);
-    double effective_chemical_potential=kb_T*DOSE*0.3*std::log(1/10.0)*std::exp(-dis_to_GB/5e-6);
+    double effective_chemical_potential=kb_T*DOSE*0.15*std::log(1/10.0)*std::exp(-dis_to_GB/5e-6);
     double exponent_term = (effective_barrier - effective_chemical_potential)/ kb_T;
     // 最终计算倾向： v0 * exp(-exponent_term)
     double propensity = PRE_FACTOR_V0 * std::exp(-exponent_term);
@@ -1126,4 +1126,5 @@ void KMC_Simulator::run(double max_time, long long int max_steps) {
     print_status();
     dump_sites(total_steps); 
     write_sites_csv();
+    write_oxide_csv();
 }
