@@ -11,7 +11,7 @@
 #include <iomanip>    // 用于格式化输出，比如设置浮点数精度
 #include <random>     // 用于 C++11 的随机数生成器 (std::mt19937, std::uniform_real_distribution)
 #include <unordered_map> // 用于 std::unordered_map，实现站点到事件索引的高效映射
-
+#include <algorithm>
 // --- 你自定义的类头文件 ---
 #include "Site.h"     // KMC_Simulator 需要知道 Site 类的定义来管理 Site 对象
 #include "Event.h"    // KMC_Simulator 需要知道 Event 类的定义来管理 Event 对象
@@ -30,7 +30,9 @@ public:
     void run(double max_time, long long int max_steps);
     bool initialize_sites_from_csv(const std::string& filename);
     bool read_stress_field_from_csv(const std::string& filename);
-private:
+    void init_cell_list(int nx, int ny, int nz);
+
+    private:
     
     static const double KB;                 // 玻尔兹曼常数 (J/K)
     static const double TEMPERATURE;        // 绝对温度 (K)
@@ -39,6 +41,11 @@ private:
     static const double ACTIVATION_VOLUME;  // 活化体积 (m^3) - 确保此值为正
     static const double PRE_FACTOR_V0;  
     static const double OXIDATION_THRESH; 
+    static const double CR_OXIDATION_GIBBS; 
+    static const double SI_OXIDATION_GIBBS;
+    static const double NI_OXIDATION_GIBBS;
+    static const double ALPHA; // 用于计算倾向的额外参数，具体含义根据你的模型定义
+    static const double OXIDATION_BARRIER;
     static const int OXYGEN_DIFF;
     static const int SILI_DIFF;
     static const int CROM_DIFF;
@@ -63,6 +70,7 @@ private:
     
     int num_sites;     // 粒子数量
     double box_size;   // 模拟盒子的尺寸
+    double total_rate;
     std::string output_dir;
     double unit_jump_distance;
     double jump_distance; // 随机游走事件的跳跃步长，作为模拟器的属性
@@ -85,7 +93,7 @@ private:
     double current_time;           // 模拟已经进行的总时间
     long long total_steps;         // 模拟已经完成的 KMC 步骤总数
     double rate_scale;
-    double oxi_prob;
+  
     int num_si_oxide;
     int num_cr_oxide;
     int num_ni_oxide;
@@ -117,12 +125,11 @@ private:
     double calculate_Cr_site_random_walk_propensity(const Site& s) const;
     double calculate_Ni_site_random_walk_propensity(const Site& s) const;
     double calculate_oxy_diffusion_propensity(double x,double y,double z);
-    double calculate_oxi_prob();
+    double calculate_oxi_prob(int type);
     double calculate_jump_scalar(double x,double y,double z) const;
     double calculate_prop_scalar(double x,double y,double z) const;
     double normal_sample(double mean, double stddev);
-    void update_affected_events(int affected_site_id);
-
+    
     double get_uniform_random();      // 生成一个 [0.0, 1.0) 范围内的均匀随机实数
     int get_uniform_int(int min, int max); // 生成一个在 [min, max] 范围内的均匀随机整数
 
@@ -132,6 +139,30 @@ private:
     void write_oxide_csv();
     void write_sites_csv();
     void write_propensity_csv();
+
+    std::vector<std::vector<int>> cells;
+
+    // 2. 网格几何参数 (按个数划分)
+    int nx, ny, nz;              // 用户指定的网格数量
+    double cell_size_x;          // 内部计算出的 x 方向边长
+    double cell_size_y;          // 内部计算出的 y 方向边长
+    double cell_size_z;          // 内部计算出的 z 方向边长
+    // double min_x, min_y, min_z;// double min_x, min_y, min_z; // 模拟区域的起点坐标（用于处理偏移）
+
+    // 辅助函数：根据坐标计算它属于哪个格子
+    inline int get_cell_index(double x, double y, double z) const {
+        int cx = static_cast<int>((x) / cell_size_x);
+        int cy = static_cast<int>((y) / cell_size_y);
+        int cz = static_cast<int>((z) / cell_size_z);
+        
+        // 边界保护，防止索引溢出
+        cx = std::max(0, std::min(cx, nx - 1));
+        cy = std::max(0, std::min(cy, ny - 1));
+        cz = std::max(0, std::min(cz, nz - 1));
+        
+        return cx + cy * nx + cz * nx * ny;
+    }
+    void update_site_cell(int site_id, double old_x, double old_y, double old_z);
 };
 
 #endif // KMC_SIMULATOR_Hs

@@ -17,6 +17,11 @@ const double KMC_Simulator::EV_TO_JOULE = 1.60218e-19; // J/eV (eV 到焦耳的�
 const double KMC_Simulator::ACTIVATION_VOLUME = 1.0e-28; // m^3 (示例活化体积，请查阅文献，通常为正值)
 const double KMC_Simulator::PRE_FACTOR_V0 = 1.0e13; // s^-1 (示例前因子，请查阅文献)
 const double KMC_Simulator::OXIDATION_THRESH = 2.5e-7; 
+const double KMC_Simulator::CR_OXIDATION_GIBBS = -1.1713e-18/2.0; 
+const double KMC_Simulator::SI_OXIDATION_GIBBS = -1.4215e-18/2.0; 
+const double KMC_Simulator::NI_OXIDATION_GIBBS = -7.0309e-19/2.0; 
+const double KMC_Simulator::ALPHA = 0.02;
+const double KMC_Simulator::OXIDATION_BARRIER = 3e-20; 
 const int KMC_Simulator::OXYGEN_DIFF=3;
 const int KMC_Simulator::SILI_DIFF=1;
 const int KMC_Simulator::CROM_DIFF=4;
@@ -47,13 +52,20 @@ KMC_Simulator::KMC_Simulator(int num_sites_arg, double box_size_arg, unsigned in
     current_time(0.0),                    // 模拟开始时时间为 0
     total_steps(0),
     rate_scale(0.0001),
-    oxi_prob(1.0),
     num_si_oxide(0),
     num_cr_oxide(0),
     num_ni_oxide(0),
     num_total_oxide(0),                        // 模拟开始时步数为 0
     grain_boundary(GB_A, GB_B, GB_C, GB_D, box_size_arg),
-    output_dir("00") 
+    total_rate(0.0),
+    output_dir("00"),
+    cells(),
+    nx(100),
+    ny(100),
+    nz(100),
+    cell_size_x(0.001),
+    cell_size_y(0.001),
+    cell_size_z(0.001)
 {
     // 预留 `sites` 向量的空间，避免在添加 Site 时不必要的内存重新分配
     sites.reserve(num_sites); 
@@ -131,6 +143,52 @@ void KMC_Simulator::initialize_sites() {
 else {
     initialize_sites_from_csv("sites3type_more.csv");
 }
+}
+
+void KMC_Simulator::init_cell_list(int count_x, int count_y, int count_z) {
+    this->nx = count_x;
+    this->ny = count_y;
+    this->nz = count_z;
+
+    // 1. 确定边界 (假设从 0 开始)
+    double min_x =0,  min_y = 0,  min_z = 0.0; 
+    double max_x = box_size, max_y = box_size, max_z = box_size;
+    for (const auto& s : sites) {
+        max_x = std::max(max_x, s.x);
+        max_y = std::max(max_y, s.y);
+        max_z = std::max(max_z, s.z);
+    }
+
+    this->cell_size_x = (max_x - min_x) / nx;
+    this->cell_size_y = (max_y - min_y) / ny;
+    this->cell_size_z = (max_z - min_z) / nz;
+    
+    // 如果三个方向格子大小一样，可以取平均或最大值，但通常建议分别存储
+    // 为了简单，我们假设 cell_size 在各个方向是一样的，或者你定义三个变量
+
+    // 3. 分配内存
+    cells.assign(nx * ny * nz, std::vector<int>());
+
+    // 4. 填入数据
+    for (int i = 0; i < (int)sites.size(); ++i) {
+        int idx = get_cell_index(sites[i].x, sites[i].y, sites[i].z);
+        cells[idx].push_back(i);
+    }
+    std::cout<<"cells number: "<<cells.size()<<std::endl;
+}
+
+void KMC_Simulator::update_site_cell(int site_id, double old_x, double old_y, double old_z) {
+    int old_idx = get_cell_index(old_x, old_y, old_z);
+    int new_idx = get_cell_index(sites[site_id].x, sites[site_id].y, sites[site_id].z);
+
+    // 只有在发生跨格子移动时才进行 vector 操作
+    if (old_idx != new_idx) {
+        auto& old_vec = cells[old_idx];
+        // 这一步是从旧格子的 vector 中把当前原子的 ID 删掉
+        old_vec.erase(std::remove(old_vec.begin(), old_vec.end(), site_id), old_vec.end());
+        // 加入到新格子
+        cells[new_idx].push_back(site_id);
+    }
 }
 
 
@@ -271,32 +329,73 @@ int KMC_Simulator::find_closest_stress_point_id(double px, double py, double pz)
 }
 
 int KMC_Simulator::find_closest_Oxy_id(double px, double py, double pz) const {
-    double min_dist = std::numeric_limits<double>::max(); // 存储最小距离
-    int closest_id = -1; // 存储最近点的 ID
+    // 确定查询点所在的格子坐标
+    int cx = static_cast<int>((px) / cell_size_x);
+    int cy = static_cast<int>((py) / cell_size_y);
+    int cz = static_cast<int>((pz) / cell_size_z);
 
-    for (int i=0; i<sites.size(); ++i) {
-        // 使用 StressPoint 类的 get_distance 方法来计算距离
-        double current_dist = std::sqrt((px-sites[i].x)*(px-sites[i].x)+(py-sites[i].y)*(py-sites[i].y)+(pz-sites[i].z)*(pz-sites[i].z));
+    double min_dist_sq = std::numeric_limits<double>::max();
+    int closest_id = -1;
 
-        if (current_dist < min_dist && sites[i].type==OXYG) {
-            min_dist = current_dist;
-            closest_id = i;
+    // 搜索周围 3x3x3 共 27 个格子
+    for (int i = cx - 1; i <= cx + 1; ++i) {
+        if (i < 0 || i >= nx) continue;
+        for (int j = cy - 1; j <= cy + 1; ++j) {
+            if (j < 0 || j >= ny) continue;
+            for (int k = cz - 1; k <= cz + 1; ++k) {
+                if (k < 0 || k >= nz) continue;
+
+                int cell_idx = i + j * nx + k * nx * ny;
+                // 只看这一个格子里的一小撮原子
+                for (int sid : cells[cell_idx]) {
+                    if (sites[sid].type == OXYG) { // 找到氧原子
+                        double dx = px - sites[sid].x;
+                        double dy = py - sites[sid].y;
+                        double dz = pz - sites[sid].z;
+                        double d2 = dx*dx + dy*dy + dz*dz;
+                        if (d2 < min_dist_sq) {
+                            min_dist_sq = d2;
+                            closest_id = sid;
+                        }
+                    }
+                }
+            }
         }
     }
     return closest_id;
 }
 
 int KMC_Simulator::find_closest_Non_Oxy_id(double px, double py, double pz) const {
-    double min_dist = std::numeric_limits<double>::max(); // 存储最小距离
-    int closest_id = -1; // 存储最近点的 ID
+    int cx = static_cast<int>((px) / cell_size_x);
+    int cy = static_cast<int>((py) / cell_size_y);
+    int cz = static_cast<int>((pz) / cell_size_z);
 
-    for (int i=0; i<sites.size(); ++i) {
-        // 使用 StressPoint 类的 get_distance 方法来计算距离
-        double current_dist = std::sqrt((px-sites[i].x)*(px-sites[i].x)+(py-sites[i].y)*(py-sites[i].y)+(pz-sites[i].z)*(pz-sites[i].z));
+    double min_dist_sq = std::numeric_limits<double>::max();
+    int closest_id = -1;
 
-        if (current_dist < min_dist && sites[i].type!=OXYG) {
-            min_dist = current_dist;
-            closest_id = i;
+    // 搜索周围 3x3x3 共 27 个格子
+    for (int i = cx - 1; i <= cx + 1; ++i) {
+        if (i < 0 || i >= nx) continue;
+        for (int j = cy - 1; j <= cy + 1; ++j) {
+            if (j < 0 || j >= ny) continue;
+            for (int k = cz - 1; k <= cz + 1; ++k) {
+                if (k < 0 || k >= nz) continue;
+
+                int cell_idx = i + j * nx + k * nx * ny;
+                // 只看这一个格子里的一小撮原子
+                for (int sid : cells[cell_idx]) {
+                    if (sites[sid].type != OXYG) { // 找到氧原子
+                        double dx = px - sites[sid].x;
+                        double dy = py - sites[sid].y;
+                        double dz = pz - sites[sid].z;
+                        double d2 = dx*dx + dy*dy + dz*dz;
+                        if (d2 < min_dist_sq) {
+                            min_dist_sq = d2;
+                            closest_id = sid;
+                        }
+                    }
+                }
+            }
         }
     }
     return closest_id;
@@ -320,6 +419,7 @@ double KMC_Simulator::calculate_adsorption_propensity() const {
 
 
 void KMC_Simulator::calculate_all_propensities_and_events() {
+    total_rate=0.0;
     all_events.clear();                 
     event_propensities_for_selection.clear(); 
     site_to_event_indices.clear();      
@@ -367,7 +467,7 @@ void KMC_Simulator::calculate_all_propensities_and_events() {
         site_to_event_indices[sites[i].id].push_back(current_event_index);
         current_event_index++;
         }
-         
+        total_rate=std::accumulate(event_propensities_for_selection.begin(), event_propensities_for_selection.end(), 0.0); 
     }
     // rate_scale = std::accumulate(event_propensities_for_selection.begin(), event_propensities_for_selection.end(), 0.0);
 }
@@ -517,12 +617,31 @@ double KMC_Simulator::calculate_Ni_site_random_walk_propensity(const Site& s) co
     return propensity;
 }
 
-double KMC_Simulator::calculate_oxi_prob(){
-    double prob;
-    prob=0.01/(1.0+std::exp((num_cr_oxide-10.0)/1.0));
-    double total_propensity = std::accumulate(event_propensities_for_selection.begin(), event_propensities_for_selection.end(), 0.0);
-    double p = 1.0-std::pow(1-prob,rate_scale/total_propensity);
-    return p;
+double KMC_Simulator::calculate_oxi_prob(int type){
+    if (current_time<=1.0){
+        return 1e-15;
+    }
+    else {
+        double prob;
+        double preprob;
+        if (type==SILIC){
+            preprob=std::exp(-(OXIDATION_BARRIER+ALPHA*SI_OXIDATION_GIBBS)/(KB*TEMPERATURE));
+        }
+        else if (type==CROM)
+        {
+            preprob=std::exp(-(OXIDATION_BARRIER+ALPHA*CR_OXIDATION_GIBBS)/(KB*TEMPERATURE));
+        }
+        else if (type==NIK)
+        {
+            preprob=std::exp(-(OXIDATION_BARRIER+ALPHA*NI_OXIDATION_GIBBS)/(KB*TEMPERATURE));
+        }
+        else {
+            preprob=1e-15;
+        }
+        prob=preprob/(1.0+std::exp((num_cr_oxide-100.0)/3.0));
+        double p = 1.0-std::pow(1-prob,rate_scale/total_rate);
+        return p;
+    }
 }
 
 double KMC_Simulator::calculate_jump_scalar(double x,double y,double z) const{
@@ -553,8 +672,8 @@ double KMC_Simulator::normal_sample(double mean, double stddev)
 
 int KMC_Simulator::select_event_index() {
     // 计算所有事件的总倾向 H (吉莱斯皮算法中的 A_0)
-    double total_propensity = std::accumulate(event_propensities_for_selection.begin(), event_propensities_for_selection.end(), 0.0);
-
+    // double total_propensity = std::accumulate(event_propensities_for_selection.begin(), event_propensities_for_selection.end(), 0.0);
+    double total_propensity = total_rate;
     // 如果总倾向为零或负，说明没有事件可以发生
     if (total_propensity <= 0.0) {
         std::cout<<"total p < 0"<<std::endl;
@@ -592,6 +711,7 @@ void KMC_Simulator::execute_event(int event_index) {
         case SILI_DIFF: {
             Site& target_site = const_cast<Site&>(sites[chosen_event.site_id]); 
             int closest_sp_id = find_closest_stress_point_id(target_site.x, target_site.y, target_site.z);
+            double ox=target_site.x, oy=target_site.y, oz=target_site.z;
             std::vector<double> direction(3);
             double displacement;
             if (Diff_mod==TRACKDIFF){
@@ -615,16 +735,22 @@ void KMC_Simulator::execute_event(int event_index) {
             // 调用 Site 对象的 `move` 方法来更新其位置
             target_site.move(direction, displacement);
             apply_pbc(target_site); 
+            update_site_cell(target_site.id, ox, oy, oz);
+            total_rate-=all_events[event_index].propensity;
             double updated_prop=calculate_Si_site_random_walk_propensity(target_site);
             all_events[event_index].propensity=updated_prop;
             event_propensities_for_selection[event_index]=updated_prop;
+            total_rate+=updated_prop;
             int Oxyid = find_closest_Oxy_id(target_site.x, target_site.y, target_site.z);
             if (Oxyid!=-1){
                 double Oxy_dis=std::sqrt((target_site.x-sites[Oxyid].x)*(target_site.x-sites[Oxyid].x)+(target_site.y-sites[Oxyid].y)*(target_site.y-sites[Oxyid].y)+(target_site.z-sites[Oxyid].z)*(target_site.z-sites[Oxyid].z));
-                if (Oxy_dis<OXIDATION_THRESH && sites[Oxyid].status==0 && target_site.status==0 && get_uniform_random()<oxi_prob){
+                if (Oxy_dis<OXIDATION_THRESH && sites[Oxyid].status==0 && target_site.status==0 && get_uniform_random()<calculate_oxi_prob(target_site.type)){
                     updated_prop=1e-15;
+                    total_rate-=all_events[event_index].propensity;
+                    total_rate+=updated_prop;
                     all_events[event_index].propensity=updated_prop;
                     event_propensities_for_selection[event_index]=updated_prop;
+                    
                     int Oxy_diff_index=-1;
                     for (int i=0; i<site_to_event_indices[Oxyid].size(); ++i){
                         if (all_events[site_to_event_indices[Oxyid][i]].etype==OXYGEN_DIFF){
@@ -633,6 +759,8 @@ void KMC_Simulator::execute_event(int event_index) {
                         }
 
                     }
+                    total_rate-=all_events[Oxy_diff_index].propensity;
+                    total_rate+=updated_prop;
                     all_events[Oxy_diff_index].propensity=updated_prop;
                     event_propensities_for_selection[Oxy_diff_index]=updated_prop;
                     std::cout<<"Si oxide formed"<<std::endl;
@@ -649,6 +777,7 @@ void KMC_Simulator::execute_event(int event_index) {
         case CROM_DIFF: {
             Site& target_site = const_cast<Site&>(sites[chosen_event.site_id]); 
             int closest_sp_id = find_closest_stress_point_id(target_site.x, target_site.y, target_site.z);
+            double ox=target_site.x, oy=target_site.y, oz=target_site.z;
             std::vector<double> direction(3);
             double displacement;
             if (Diff_mod==TRACKDIFF){
@@ -670,14 +799,19 @@ void KMC_Simulator::execute_event(int event_index) {
             // 调用 Site 对象的 `move` 方法来更新其位置
             target_site.move(direction, displacement);
             apply_pbc(target_site); 
+            update_site_cell(target_site.id, ox, oy, oz);
             double updated_prop=calculate_Cr_site_random_walk_propensity(target_site);
+            total_rate-=all_events[event_index].propensity;
+                    total_rate+=updated_prop;
             all_events[event_index].propensity=updated_prop;
             event_propensities_for_selection[event_index]=updated_prop;
             int Oxyid = find_closest_Oxy_id(target_site.x, target_site.y, target_site.z);
             if (Oxyid!=-1){
                 double Oxy_dis=std::sqrt((target_site.x-sites[Oxyid].x)*(target_site.x-sites[Oxyid].x)+(target_site.y-sites[Oxyid].y)*(target_site.y-sites[Oxyid].y)+(target_site.z-sites[Oxyid].z)*(target_site.z-sites[Oxyid].z));
-                if (Oxy_dis<OXIDATION_THRESH && sites[Oxyid].status==0 && target_site.status==0 && get_uniform_random()<oxi_prob){
+                if (Oxy_dis<OXIDATION_THRESH && sites[Oxyid].status==0 && target_site.status==0 && get_uniform_random()<calculate_oxi_prob(target_site.type)){
                     updated_prop=1e-15;
+                    total_rate-=all_events[event_index].propensity;
+                    total_rate+=updated_prop;
                     all_events[event_index].propensity=updated_prop;
                     event_propensities_for_selection[event_index]=updated_prop;
                     int Oxy_diff_index=-1;
@@ -688,6 +822,8 @@ void KMC_Simulator::execute_event(int event_index) {
                         }
 
                     }
+                    total_rate-=all_events[Oxy_diff_index].propensity;
+                    total_rate+=updated_prop;
                     all_events[Oxy_diff_index].propensity=updated_prop;
                     event_propensities_for_selection[Oxy_diff_index]=updated_prop;
                     std::cout<<"Cr oxide formed"<<std::endl;
@@ -696,7 +832,7 @@ void KMC_Simulator::execute_event(int event_index) {
                     target_site.status=1;
                     sites[Oxyid].status=1;
                     write_oxide_csv();
-                    oxi_prob=calculate_oxi_prob();
+                    
 
                 }
             }
@@ -706,6 +842,7 @@ void KMC_Simulator::execute_event(int event_index) {
         case NIK_DIFF: {
             Site& target_site = const_cast<Site&>(sites[chosen_event.site_id]); 
             int closest_sp_id = find_closest_stress_point_id(target_site.x, target_site.y, target_site.z);
+            double ox=target_site.x, oy=target_site.y, oz=target_site.z;
             std::vector<double> direction(3);
             double displacement;
             if (Diff_mod==TRACKDIFF){
@@ -727,14 +864,20 @@ void KMC_Simulator::execute_event(int event_index) {
             // 调用 Site 对象的 `move` 方法来更新其位置
             target_site.move(direction, displacement);
             apply_pbc(target_site); 
+            update_site_cell(target_site.id, ox, oy, oz);
+            
             double updated_prop=calculate_Ni_site_random_walk_propensity(target_site);
+            total_rate-=all_events[event_index].propensity;
+            total_rate+=updated_prop;
             all_events[event_index].propensity=updated_prop;
             event_propensities_for_selection[event_index]=updated_prop;
             int Oxyid = find_closest_Oxy_id(target_site.x, target_site.y, target_site.z);
             if (Oxyid!=-1){
                 double Oxy_dis=std::sqrt((target_site.x-sites[Oxyid].x)*(target_site.x-sites[Oxyid].x)+(target_site.y-sites[Oxyid].y)*(target_site.y-sites[Oxyid].y)+(target_site.z-sites[Oxyid].z)*(target_site.z-sites[Oxyid].z));
-                if (Oxy_dis<OXIDATION_THRESH && sites[Oxyid].status==0 && target_site.status==0 && get_uniform_random()<oxi_prob){
+                if (Oxy_dis<OXIDATION_THRESH && sites[Oxyid].status==0 && target_site.status==0 && get_uniform_random()<calculate_oxi_prob(target_site.type)){
                     updated_prop=1e-15;
+                    total_rate-=all_events[event_index].propensity;
+                    total_rate+=updated_prop;
                     all_events[event_index].propensity=updated_prop;
                     event_propensities_for_selection[event_index]=updated_prop;
                     int Oxy_diff_index=-1;
@@ -745,6 +888,8 @@ void KMC_Simulator::execute_event(int event_index) {
                         }
 
                     }
+                    total_rate-=all_events[Oxy_diff_index].propensity;
+                    total_rate+=updated_prop;
                     all_events[Oxy_diff_index].propensity=updated_prop;
                     event_propensities_for_selection[Oxy_diff_index]=updated_prop;
                     std::cout<<"Ni oxide formed"<<std::endl;
@@ -778,14 +923,19 @@ void KMC_Simulator::execute_event(int event_index) {
             Event oxy_diff_event(OXYGEN_DIFF, calculate_oxy_diffusion_propensity(new_oxygen.x,new_oxygen.y,new_oxygen.z),new_oxygen.id);
             all_events.push_back(oxy_diff_event);
             event_propensities_for_selection.push_back(calculate_oxy_diffusion_propensity(new_oxygen.x,new_oxygen.y,new_oxygen.z));
-            all_events[event_index].propensity=calculate_adsorption_propensity();
-            event_propensities_for_selection[event_index]=all_events[event_index].propensity;
+            total_rate+=calculate_oxy_diffusion_propensity(new_oxygen.x,new_oxygen.y,new_oxygen.z);
+            // total_rate-=all_events[event_index].propensity;
+            // total_rate+=calculate_adsorption_propensity();
+            // all_events[event_index].propensity=calculate_adsorption_propensity();
+            // event_propensities_for_selection[event_index]=all_events[event_index].propensity;
             int current_event_index=all_events.size()-1;
             site_to_event_indices[new_oxygen.id].push_back(current_event_index);
-            std::cout << "Adsorption: New Oxygen Site " << new_site_id 
-                      << " created at (" << new_oxygen.x << ", " << new_oxygen.y 
-                      << ", " << new_oxygen.z << ") on GB." << std::endl;
+            // std::cout << "Adsorption: New Oxygen Site " << new_site_id 
+            //           << " created at (" << new_oxygen.x << ", " << new_oxygen.y 
+            //           << ", " << new_oxygen.z << ") on GB." << std::endl;
             double absoption_propensity=calculate_adsorption_propensity();
+            total_rate-=all_events[event_index].propensity;
+            total_rate+=absoption_propensity;
             all_events[event_index].propensity=absoption_propensity;
             event_propensities_for_selection[event_index]=all_events[event_index].propensity; 
             break;
@@ -793,18 +943,25 @@ void KMC_Simulator::execute_event(int event_index) {
         }
         case OXYGEN_DIFF: {
             Site& target_site = const_cast<Site&>(sites[chosen_event.site_id]);
+            double ox=target_site.x, oy=target_site.y, oz=target_site.z;
             double xm = 2.0*get_uniform_random()-1;
             double zm = 2.0*get_uniform_random()-1;
             target_site.x += 10.0*xm*jump_distance*calculate_jump_scalar(target_site.x,target_site.y,target_site.z);
             target_site.z += 10.0*zm*jump_distance*calculate_jump_scalar(target_site.x,target_site.y,target_site.z);
             target_site.y = -(GB_A*target_site.x+GB_C*target_site.z+GB_D)/GB_B;
             grain_boundary.apply_pbc_and_constrain(target_site);
+            update_site_cell(target_site.id, ox, oy, oz);
+
+
             // std::cout<<"oxygen move, site id: "<<target_site.id<<" "<<jump_distance<<std::endl;
             int NonOxyid = find_closest_Non_Oxy_id(target_site.x, target_site.y, target_site.z);
             if (NonOxyid!=-1){
                 double Oxy_dis=std::sqrt((target_site.x-sites[NonOxyid].x)*(target_site.x-sites[NonOxyid].x)+(target_site.y-sites[NonOxyid].y)*(target_site.y-sites[NonOxyid].y)+(target_site.z-sites[NonOxyid].z)*(target_site.z-sites[NonOxyid].z));
-                if (Oxy_dis<OXIDATION_THRESH && sites[NonOxyid].status==0 && target_site.status==0 && get_uniform_random()<oxi_prob){
+                if (Oxy_dis<OXIDATION_THRESH && sites[NonOxyid].status==0 && target_site.status==0 && get_uniform_random()<calculate_oxi_prob(sites[NonOxyid].type)){
                     double updated_prop=1e-15;
+                    
+                    total_rate-=all_events[event_index].propensity;
+                    total_rate+=updated_prop;
                     all_events[event_index].propensity=updated_prop;
                     event_propensities_for_selection[event_index]=updated_prop;
                     int NonOxy_diff_index=-1;
@@ -815,6 +972,8 @@ void KMC_Simulator::execute_event(int event_index) {
                         }
 
                     }
+                    total_rate-=all_events[NonOxy_diff_index].propensity;
+                    total_rate+=updated_prop;
                     all_events[NonOxy_diff_index].propensity=updated_prop;
                     event_propensities_for_selection[NonOxy_diff_index]=updated_prop;
                     if (sites[NonOxyid].type==SILIC){
@@ -826,7 +985,7 @@ void KMC_Simulator::execute_event(int event_index) {
                         std::cout<<"Cr oxide formed"<<std::endl;
                         num_cr_oxide += 1;
                         num_total_oxide += 1;
-                        oxi_prob=calculate_oxi_prob();
+                        // oxi_prob=calculate_oxi_prob();
                     }
                     else if (sites[NonOxyid].type==NIK){
                         std::cout<<"Ni oxide formed"<<std::endl;
@@ -866,46 +1025,10 @@ void KMC_Simulator::apply_pbc(Site& s) {
     if (s.z < 0) s.z += box_size;
 }
 
-void KMC_Simulator::update_affected_events(int affected_site_id) {
-    // // 检查 `affected_site_id` 是否在映射中存在
-    // if (site_to_event_indices.count(affected_site_id)) { 
-    //     // 获取所有与 `affected_site_id` 关联的事件的索引列表
-    //     const auto& related_event_indices = site_to_event_indices.at(affected_site_id);
-
-    //     for (int event_idx : related_event_indices) {
-    //         // 获取待更新事件的引用
-    //         Event& event_to_update = all_events[event_idx];
-            
-    //         double new_propensity = 0.0;
-    //         // 根据事件类型重新计算其倾向
-    //         switch (event_to_update.etype) {
-    //             case RANDOM_WALK:
-    //                 // 对于随机游走，我们假设倾向始终为 1.0
-    //                 new_propensity = 1.0; 
-    //                 // 如果未来倾向依赖于 Site 的状态（如是否空），这里需要访问 Site 对象
-    //                 // 例如：Site& affected_site = const_cast<Site&>(event_to_update.site);
-    //                 // if (affected_site.is_empty()) new_propensity = 1.0; else new_propensity = 0.0;
-    //                 break;
-    //             // --- 未来扩展点：其他事件类型的倾向计算 ---
-    //             /*
-    //             case ADSORPTION:
-    //                 // new_propensity = calculate_adsorption_propensity(const_cast<Site&>(event_to_update.site));
-    //                 break;
-    //             */
-    //             default:
-    //                 std::cerr << "Error: Unhandled event type for propensity update." << std::endl;
-    //                 break;
-    //         }
-    //         // 更新 Event 对象内部存储的倾向值
-    //         event_to_update.propensity = new_propensity;
-    //         // **最重要的是，更新用于选择事件的倾向列表！**
-    //         event_propensities_for_selection[event_idx] = new_propensity;
-    //     }
-}
 
 void KMC_Simulator::print_status() {
     std::cout << "Time: " << std::fixed << std::setprecision(6) << current_time 
-              << " | Steps: " << total_steps << std::endl;
+              << " | Steps: " << total_steps <<" total rate: "<<total_rate <<std::endl;
 }
 
 // --- 输出 Site 坐标到文件 ---
@@ -1047,8 +1170,9 @@ void KMC_Simulator::run(double max_time, long long int max_steps) {
 
     // **首次构建事件列表和计算所有倾向**
     fs::create_directories(output_dir);  // 目录不存在就创建（已存在也不会报错）
+    init_cell_list( nx, ny, nz);
     calculate_all_propensities_and_events();
-    rate_scale = 2e8;
+    rate_scale = 1e9;
     // rate_scale = std::accumulate(event_propensities_for_selection.begin(), event_propensities_for_selection.end(), 0.0);
     dump_sites(0); // 输出初始构型
     write_propensity_csv();
@@ -1056,8 +1180,8 @@ void KMC_Simulator::run(double max_time, long long int max_steps) {
     // KMC 模拟主循环
     while (current_time < max_time && total_steps < max_steps) {
         // 获取当前所有事件的总倾向 H
-        double total_propensity = std::accumulate(event_propensities_for_selection.begin(), event_propensities_for_selection.end(), 0.0);
-
+        // double total_propensity = std::accumulate(event_propensities_for_selection.begin(), event_propensities_for_selection.end(), 0.0);
+        double total_propensity = total_rate;
         // 如果总倾向为零，说明没有事件可以发生，模拟结束
         if (total_propensity <= 0.0) {
             std::cout << "Total propensity is zero. No more events possible. Exiting simulation." << std::endl;
