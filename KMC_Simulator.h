@@ -44,6 +44,9 @@ public:
     static const double CR_OXIDATION_GIBBS; 
     static const double SI_OXIDATION_GIBBS;
     static const double NI_OXIDATION_GIBBS;
+    static const double NI_OXIDE_THICKNESS;
+    static const double SI_OXIDE_THICKNESS;
+    static const double CR_OXIDE_THICKNESS;
     static const double ALPHA; // 用于计算倾向的额外参数，具体含义根据你的模型定义
     static const double OXIDATION_BARRIER;
     static const int OXYGEN_DIFF;
@@ -60,6 +63,7 @@ public:
     
     
     double DOSE;
+    double GB_normal_stress;
     int CSVflag;
     double GB_A;
     double GB_B;

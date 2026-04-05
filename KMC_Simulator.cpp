@@ -19,7 +19,10 @@ const double KMC_Simulator::PRE_FACTOR_V0 = 1.0e13; // s^-1 (示例前因子，�
 const double KMC_Simulator::OXIDATION_THRESH = 2.5e-7; 
 const double KMC_Simulator::CR_OXIDATION_GIBBS = -1.1713e-18/2.0; 
 const double KMC_Simulator::SI_OXIDATION_GIBBS = -1.4215e-18/2.0; 
-const double KMC_Simulator::NI_OXIDATION_GIBBS = -7.0309e-19/2.0; 
+const double KMC_Simulator::NI_OXIDATION_GIBBS = -7.0309e-19/2.0;
+const double KMC_Simulator::NI_OXIDE_THICKNESS = 1.62e-3;
+const double KMC_Simulator::SI_OXIDE_THICKNESS = 3.29e-3;
+const double KMC_Simulator::CR_OXIDE_THICKNESS = 2.11e-3;    
 const double KMC_Simulator::ALPHA = 0.02;
 const double KMC_Simulator::OXIDATION_BARRIER = 3e-20; 
 const int KMC_Simulator::OXYGEN_DIFF=3;
@@ -40,6 +43,7 @@ KMC_Simulator::KMC_Simulator(int num_sites_arg, double box_size_arg, unsigned in
     box_size(box_size_arg),               // 盒子大小
     unit_jump_distance(unit_jump_distance_arg),
     DOSE(0.0),
+    GB_normal_stress(0.0),
     CSVflag(CSVflag),     
     GB_A(GB_A),
     GB_B(GB_B),
@@ -109,7 +113,11 @@ void KMC_Simulator::read_input_file(const std::string& filename)
             iss >> DOSE;                 // 覆盖默认 DOSE
         } else if (key == "output_dir") {
             iss >> output_dir;           // 覆盖默认 output_dir
-        } else {
+        } 
+        else if (key == "GB_normal_stress") {
+            iss >> GB_normal_stress;     // 覆盖默认 GB_normal_stress
+        }
+        else {
             // 最小改动：先忽略未知 key，避免影响你现有功能
             // std::cerr << "Warning: unknown key: " << key << "\n";
         }
@@ -402,19 +410,26 @@ int KMC_Simulator::find_closest_Non_Oxy_id(double px, double py, double pz) cons
 }
 
 double KMC_Simulator::calculate_adsorption_propensity() const {
-    const double ADSORPTION_RATE_PER_SECOND = 1.0e9; 
+    const double ADSORPTION_RATE_PER_SECOND = 2.0e3; 
 
+    if (current_time < 1.0) { 
+        return 1e-12; // 初始阶段几乎没有氧气吸附
+    }
     int oxygen_count = 0;
     for (const auto& s : sites) {
         if (s.type == OXYG) {
             oxygen_count++;
         }
     }
-    if (oxygen_count >= 3000) { 
+    if (oxygen_count >= 6000) { 
         return 1.1e-12;
     }
-
-    return ADSORPTION_RATE_PER_SECOND; 
+    double characteristic_oxithickness = 0.2;
+    double total_oxide_thickness = num_ni_oxide * NI_OXIDE_THICKNESS + num_si_oxide * SI_OXIDE_THICKNESS + num_cr_oxide * CR_OXIDE_THICKNESS;
+    double oxide_factor =4.0 - 3.0*std::exp(-total_oxide_thickness / characteristic_oxithickness);
+    double characteristic_stress = 1000.0;
+    double stress_factor = 4.0 - 3.0*std::exp(-GB_normal_stress / characteristic_stress);
+    return ADSORPTION_RATE_PER_SECOND*oxide_factor*stress_factor; 
 }
 
 
@@ -426,7 +441,7 @@ void KMC_Simulator::calculate_all_propensities_and_events() {
 
     int current_event_index = 0; // 用于跟踪当前事件在 all_events 向量中的索引
     double adsorption_propensity = calculate_adsorption_propensity();
-    if (adsorption_propensity > 1e-12) {
+    if (adsorption_propensity > 0.0) {
         // 使用一个哑元 (Dummy) Site 对象
         // static Site dummy_adsorption_site(std::numeric_limits<int>::max(), 0.0, 0.0, 0.0, -1); 
 
@@ -472,7 +487,11 @@ void KMC_Simulator::calculate_all_propensities_and_events() {
     // rate_scale = std::accumulate(event_propensities_for_selection.begin(), event_propensities_for_selection.end(), 0.0);
 }
 double KMC_Simulator::calculate_oxy_diffusion_propensity(double x,double y,double z){
-    return 5e2*calculate_prop_scalar(x,y,z);
+    double pre_factor=5e2;
+    double charateristic_stress=1500.0;
+    double stress_factor=3.0-2.0*std::exp(-GB_normal_stress/charateristic_stress);
+    double oxy_diff_propensity=pre_factor*stress_factor*calculate_prop_scalar(x,y,z);
+    return oxy_diff_propensity;
 }
 
 double KMC_Simulator::calculate_Si_site_random_walk_propensity(const Site& s) const {
@@ -930,9 +949,9 @@ void KMC_Simulator::execute_event(int event_index) {
             // event_propensities_for_selection[event_index]=all_events[event_index].propensity;
             int current_event_index=all_events.size()-1;
             site_to_event_indices[new_oxygen.id].push_back(current_event_index);
-            // std::cout << "Adsorption: New Oxygen Site " << new_site_id 
-            //           << " created at (" << new_oxygen.x << ", " << new_oxygen.y 
-            //           << ", " << new_oxygen.z << ") on GB." << std::endl;
+            std::cout << "Adsorption: New Oxygen Site " << new_site_id 
+                      << " created at (" << new_oxygen.x << ", " << new_oxygen.y 
+                      << ", " << new_oxygen.z << ") on GB." << std::endl;
             double absoption_propensity=calculate_adsorption_propensity();
             total_rate-=all_events[event_index].propensity;
             total_rate+=absoption_propensity;
@@ -1176,6 +1195,7 @@ void KMC_Simulator::run(double max_time, long long int max_steps) {
     // rate_scale = std::accumulate(event_propensities_for_selection.begin(), event_propensities_for_selection.end(), 0.0);
     dump_sites(0); // 输出初始构型
     write_propensity_csv();
+    write_oxide_csv();
 
     // KMC 模拟主循环
     while (current_time < max_time && total_steps < max_steps) {
@@ -1213,6 +1233,18 @@ void KMC_Simulator::run(double max_time, long long int max_steps) {
         jump_distance=unit_jump_distance;
         execute_event(chosen_event_idx); 
         total_steps++; // 增加已完成的 KMC 步数
+        if (all_events[0].etype==OXYGEN_ABS){
+            double old_absorption_propensity=all_events[0].propensity;
+            double new_absorption_propensity=calculate_adsorption_propensity();
+            total_rate-=old_absorption_propensity;
+            total_rate+=new_absorption_propensity;
+            event_propensities_for_selection[0]=new_absorption_propensity;
+            all_events[0].propensity=new_absorption_propensity;
+        }
+        else {
+            std::cerr << "Warning: First event in all_events is not OXYGEN_ABS. Check event list construction." << std::endl;
+            
+        }
 
         // **事件发生后，更新事件倾向**
         // 对于你当前只有随机游走（倾向固定为 1.0）的模拟，
