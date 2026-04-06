@@ -182,7 +182,7 @@ Trajectory snapshots (`sites_*.xyz`) are written every 10⁶ steps. Final state 
 
 ## Visualization
 
-Use [VMD](https://www.ks.uiuc.edu/Research/vmd/) to load trajectory files:
+Use OVITO to load trajectory files:
 
 ```
 vmd -e load_sites_trajectory.tcl
@@ -194,10 +194,10 @@ Jupyter notebooks for analysis:
 |----------|---------|
 | `oxidationvstime.ipynb` | Plot oxide count vs. time |
 | `sitesdistribution.ipynb` | Spatial distribution of sites |
-| `sitesgeneration.ipynb` | Generate/inspect initial site configurations |
-| `stressfield.ipynb` | Visualize the stress field |
-| `stress_grad.ipynb` | Visualize stress gradients |
-| `kmc_realtime_visualization_STRICT.ipynb` | Real-time trajectory visualization |
+| `sitesgeneration.ipynb` | Generate initial site configurations |
+| `stressfield.ipynb` | Extract stress field |
+| `stress_grad.ipynb` | Compute stress gradients |
+| `kmc_realtime_visualization_STRICT.ipynb` | Real-time solute concentration visualization |
 
 ---
 
